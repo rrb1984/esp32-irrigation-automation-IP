@@ -1,0 +1,12 @@
+# Wokwi Library List
+# See https://docs.wokwi.com/guides/libraries
+
+DHT sensor library for ESPx
+HTU21D Sensor Library
+HCSR04
+NewPing
+Ultrasonic
+ArduinoJson
+NTPClient
+Timezone
+PubSubClient

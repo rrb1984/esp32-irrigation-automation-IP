@@ -1,0 +1,237 @@
+
+/***************************************************************************
+  Copyright (c) 2021-2022 Lars Wessels
+
+  This file a part of the "ESP32-Irrigation-Automation" source code.
+  https://github.com/lrswss/esp32-irrigation-automation
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+   
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+***************************************************************************/
+
+#include "config.h"
+#include "logging.h"
+#include "wlan.h"
+#include "utils.h"
+#include "rtc.h"
+#include "mqtt.h"
+#include "prefs.h"
+#include "sensors.h"
+#include "relay.h"
+#include "web.h"
+#include "scheduler.h"
+
+void setup() {
+    char logmsg[96];
+
+    // init watchdog with 90 sec. timeout
+    // log rotation (rename file) sometimes take about a minute
+    
+
+#ifdef WOKWKI_WEB
+
+	esp_task_wdt_init(&WDT_CONFIG);
+    esp_task_wdt_add(NULL);
+
+#endif //WOKWKI_WEB
+#ifndef WOKWKI_WEB
+
+   esp_task_wdt_init(90, true); 
+   esp_task_wdt_add(NULL);
+   
+#endif //WOKWKI_WEB
+
+
+
+    btStop();
+    initPrefs();
+    initRelays();
+    Serial.begin(115200);
+    delay(500);
+
+    Serial.println();
+    Serial.printf("%s (v%d)\n", "ESP32-Irrigation-Automation", FIRMWARE_VERSION);
+    runmode = bootMsg();
+
+    // normal power or full system reset
+    if (runmode >= POWERUP) {
+        sprintf(logmsg, "start,%s,v%d", runmodes[runmode], FIRMWARE_VERSION);
+        strcat(logmsg, checkFirmwareUpdate());
+        restorePrefs();
+
+    // soft restart triggered by external reset button
+    } else if (runmode == RESTART) {
+        sprintf(logmsg, "restart,%s,v%d", runmodes[runmode], FIRMWARE_VERSION);
+    }
+
+    initLogging();    
+    logMsg(logmsg);
+    
+    initSensors();
+#ifdef HAS_HTU21D
+    readTemp(true, true); 
+#endif
+#ifdef HAS_DHT122
+  readTemp(true, true);
+#endif
+#if defined(US_TRIGGER_PIN) && defined(US_ECHO_PIN)
+    readWaterLevel(true, true);
+#endif
+    readMoisture(true, true, true);
+
+    // check wifi uplink
+    // if not available start AP
+    if (!wifi_uplink(true))
+        wifi_hotspot(true);
+    else
+        startNTPSync();
+
+    webserver_start();
+
+#ifdef DEBUG_MEMORY
+    free_heap();
+#endif
+}
+
+
+void loop() {
+    static uint32_t prevLoopTimer = 0;
+    static uint32_t prevMqttPublish = 0;
+    static uint32_t wifiRetry = WIFI_STA_RECONNECT_TIMEOUT;
+    static uint16_t wifiOffline = 0;
+    uint32_t scheduler_start = 0;
+
+#ifdef DEBUG_MEMORY
+    static char logmsg[32];
+#endif
+
+    // run tasks once every second
+    if (millis() - prevLoopTimer >= 1000) { 
+        prevLoopTimer = millis();
+        busyTime += 1;
+
+        // check for wifi uplink, try to reconnect every 60 secs.
+        if (!wifi_uplink(false)) {
+            if (!wifiRetry || wifiRetry <= busyTime) {
+                wifiRetry = busyTime + WIFI_STA_RECONNECT_TIMEOUT;
+                if (wifi_uplink(true))
+                    startNTPSync();
+
+            } else if (!(busyTime % 10)) {
+                wifiOffline += 10;
+                Serial.print(millis());
+                Serial.print(F(": WiFi: Uplink down, next retry in "));
+                Serial.print(wifiRetry - busyTime);
+                Serial.println(F(" seconds."));
+
+                // Switch on local AP as fallback if wifi 
+                // is down for a longer period of time
+                if (wifiOffline >= WIFI_AP_FALLBACK_TIMEOUT)
+                    wifi_hotspot(true);    
+            }
+
+        } else {
+            wifiRetry = 0;
+            wifiOffline = 0;
+
+            // check for remote commands
+            if (mqtt_connect(MQTT_TIMEOUT_MS))
+                mqtt.loop();
+
+            // publish current sensor readings
+            if (millis() - prevMqttPublish >= (generalPrefs.mqttPushInterval * 1000)) {
+                prevMqttPublish = millis();
+                mqtt_send(MQTT_TIMEOUT_MS);
+            }
+
+            // retry ntp sync every minute if time is not set
+            if (getLocalTime() < 1609455600 && !(busyTime % 60))
+                startNTPSync();
+
+            // log sensor readings every hour
+            if (!(busyTime % 3600)) {
+                readTemp(true, true);
+                readWaterLevel(true, true);
+                readMoisture(true, true, false);  
+            }
+
+            // sync RTC, check for log rotation
+            if (!strcmp("04:30:00", getTimeString(true))) {
+                startNTPSync();
+                rotateLogs();  // blocking...
+            }
+        }
+
+        // stop local AP after timeout if connection to wifi is available
+        if (!(busyTime % 5) && busyTime >= AP_TIMEOUT_SECS && wifi_uplink(false))
+            wifi_hotspot(false);
+
+        // read sensors
+        if (!(busyTime % 15)) {
+            readTemp(true, false);
+            readWaterLevel(true, false);
+            readMoisture(true, false, false); // updates moving avg if enabled
+        }
+
+        // daily irrigation scheduler (fall back watering)
+        // triggers consecutive valve jobs at given time (HH:MM)
+        if (switchesPrefs.enableAutoIrrigation && !jobs_scheduled() && 
+                !strcmp(switchesPrefs.autoIrrigationTime, getTimeString(false))) {
+            scheduler_start = millis();
+            for (uint8_t i = 1, j = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
+                // only schedule valve if it hasn't been used within given time range to avoid overwatering
+                if ((getLocalTime() - pintime[i]) > (switchesPrefs.autoIrrigationPauseHours * 3600)) {
+                    if (switchesPrefs.autoIrrigationSecs[i-1] > 0) {
+                        // schedule a start and stop job for a valve with configured runtime
+                        schedule_job(&valvejobs[j], (scheduler_start + (i * 1000)), setRelay, i, true);
+                        schedule_job(&valvejobs[j+1], (scheduler_start + (i + switchesPrefs.autoIrrigationSecs[i-1]) * 1000), setRelay, i, false);
+                        scheduler_start = scheduler_start + ((i + switchesPrefs.autoIrrigationSecs[i-1]) * 1000) + 5000;
+                        j = j + 2;
+                    }
+                }
+            }
+        }
+        // daily irrigation scheduler (fall back watering)
+        // triggers consecutive valve jobs at given time (HH:MM)
+        // Smart irrigation here
+        if (!switchesPrefs.enableAutoIrrigation && !jobs_scheduled() && 
+                !strcmp(switchesPrefs.autoIrrigationTime, getTimeString(false))) {
+            scheduler_start = millis();
+            for (uint8_t i = 1, j = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
+                // only schedule valve if it hasn't been used within given time range to avoid overwatering and the sensor moisture reading shows that needs to be irrigated
+                if ((getLocalTime() - pintime[i]) > (switchesPrefs.autoIrrigationPauseHours * 3600) && (sensors.moisture[i] < switchesPrefs.MoistureValueThreshold[i])) {
+                    if (switchesPrefs.autoIrrigationSecs[i-1] > 0) {
+                        // schedule a start and stop job for a valve with configured runtime
+                        schedule_job(&valvejobs[j], (scheduler_start + (i * 1000)), setRelay, i, true);
+                        schedule_job(&valvejobs[j+1], (scheduler_start + (i + switchesPrefs.autoIrrigationSecs[i-1]) * 1000), setRelay, i, false);
+                        scheduler_start = scheduler_start + ((i + switchesPrefs.autoIrrigationSecs[i-1]) * 1000) + 5000;
+                        j = j + 2;
+                    }
+                }
+            }
+        }
+
+
+        unblockRelays();
+        pumpAutoStop();
+
+#ifdef DEBUG_MEMORY
+        if (!(busyTime % 300))
+            free_heap();
+#endif
+    }
+
+    webserver.handleClient(); // handle webserver requests
+    scheduler(); // trigger scheduled jobs
+    esp_task_wdt_reset(); // feed the dog...
+}
