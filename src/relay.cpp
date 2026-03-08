@@ -7,7 +7,7 @@
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-   
+
   http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
@@ -28,56 +28,78 @@
 
 uint16_t pinstate = 0;
 // store time pin was last triggered
-uint32_t pintime[] = { 0, 0, 0, 0 };
+/// used for auto-stop and blocking of relays
+uint32_t pintime[] = {0, 0, 0, 0};
 
-#ifndef ENABLE_AUTO_IRRIGRATION_SCHEDULER
-  // relay pin and relay state value
-// pin_number, state on, state blocked
-uint16_t pinmap[][3] = { 
-    { RELAY1_PIN, 0x0001, 0x0002 },
-    { RELAY2_PIN, 0x0004, 0x0008 },
-    { RELAY3_PIN, 0x0010, 0x0020 },
-    { RELAY4_PIN, 0x0040, 0x0080 }
-};
+// define pins configure as relay control port as
+// output set them high since relay are active low
+// pinmap[0] is used for digitalWrite, pinmap[1] for checking if relay is on and pinmap[2] for checking if relay is blocked by previous petition
+uint16_t pinmap[][3] = {
+    {RELAY1_PIN, 0x0001, 0x0002},
+    {RELAY2_PIN, 0x0004, 0x0008},
+    {RELAY3_PIN, 0x0010, 0x0020},
+    {RELAY4_PIN, 0x0040, 0x0080}};
 
 char pinnames[NUM_RELAY][7] = {
     RELAY1_LABEL,
     RELAY2_LABEL,
     RELAY3_LABEL,
-    RELAY4_LABEL
-};
+    RELAY4_LABEL};
 
-// define pins configure as relay control port as
-// output set them high since relay are active low
-void initRelays() {
-    for (uint8_t i = 0; i < NUM_RELAY; i++) {
+/**
+ * @brief
+ * define pins configure as relay control port as
+ * output set them high since relay are active low
+ * needs to be called at startup before any other function that relies on relay states
+ */
+void initRelays()
+{
+    for (uint8_t i = 0; i < NUM_RELAY; i++)
+    {
         pinMode(switchesPrefs.pinRelay[i], OUTPUT);
         digitalWrite(switchesPrefs.pinRelay[i], 1);
     }
 }
-void setRelay(uint8_t num, bool on) {
+
+/**
+ * @brief Set the Relay object
+ *  turn on or off relay depending on petition bool, also checks if relay is blocked by previous petition and logs action
+ * @param num relay number, starting with 0 for first relay
+ * @param on true to turn on relay, false to turn off relay
+ *
+ */
+void setRelay(uint8_t num, bool on)
+{
     char logmsg[32];
 
-    if (on) {
-        if ((pinstate & pinmap[num][2]) == 0) {
-            if ((pinstate & pinmap[num][1]) == 0) {
-                digitalWrite(pinmap[num][0], LOW); // active low
-                pintime[num] = getLocalTime();
-                pinstate |= pinmap[num][1];
-                pinstate &= ~pinmap[num][2];
+    if (on) //   turn on relay
+    {
+        if ((pinstate & pinmap[num][2]) == 0) // check if relay is blocked by previous petition, if not turn on relay, update pinstate and log action
+        {
+            if ((pinstate & pinmap[num][1]) == 0) // check if relay is already on, if not turn on relay, update pinstate and log action
+            {
+                digitalWrite(pinmap[num][0], LOW); // active -> low ( inverted logic)
+                pintime[num] = getLocalTime();     // store time relay was turned on for auto-stop and blocking of relays
+                pinstate |= pinmap[num][1];        // update pinstate to indicate relay is on
+                pinstate &= ~pinmap[num][2];       // update pinstate to indicate relay is not blocked
                 Serial.print(millis());
                 Serial.printf(": Opened %s\n", pinnames[num]);
                 sprintf(logmsg, "%s on, water %dcm", pinnames[num], sensors.waterLevel);
                 logMsg(logmsg);
             }
-        } else {
+        }
+        else //
+        {
             Serial.print(millis());
             Serial.printf(": Relay %s blocked!\n", pinnames[num]);
             return;
         }
-    } else {//shutdown relay petition bool = false
-        if ((pinstate & pinmap[num][1]) != 0) {
-            digitalWrite(pinmap[num][0], HIGH);
+    }
+    else // turn off relay
+    {
+        if ((pinstate & pinmap[num][1]) != 0) // check if relay is on, if it is turn off relay, update pinstate and log action
+        {
+            digitalWrite(pinmap[num][0], HIGH); // inactive -> high ( inverted logic)
             pintime[num] = getLocalTime();
             pinstate &= ~pinmap[num][1];
             pinstate |= pinmap[num][2];
@@ -88,304 +110,114 @@ void setRelay(uint8_t num, bool on) {
         }
     }
 }
-// check if any relay can be unblocked
-void unblockRelays() {
+
+/**
+ * @brief
+ * check if any relay can be unblocked based on configured block time ( switchesPrefs.relaysBlockMins ) to avoid accidental overwatering, needs to be called regularly in loop
+ */
+void unblockRelays()
+{
     uint32_t blockTimeSecs;
 
-
-    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
         blockTimeSecs = getLocalTime() - pintime[i];
-        if ((pinstate & pinmap[i][2]) != 0 && blockTimeSecs > (switchesPrefs.relaysBlockMins * 60)) {
+        if ((pinstate & pinmap[i][2]) != 0 && blockTimeSecs > (switchesPrefs.relaysBlockMins * 60))
+        {
             pinstate &= ~pinmap[i][2];
         }
-    } 
+    }
 }
 
-
-// prevent water pump from running dry
-// turn off pump automatically after configured auto stop
-// timeout or if water level reaches lower limit
-void pumpAutoStop() {
+/**
+ * @brief
+ * prevent water pump from running dry, turn off pump automatically after configured auto stop timeout or if water level reaches lower limit, needs to be called regularly in loop
+ */
+void pumpAutoStop()
+{
     static char logmsg[48];
     bool pumpoff = false;
 
-#if defined(US_TRIGGER_PIN) && defined(US_ECHO_PIN)
-    // update level reading regularly if pump is running
-    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
+#if defined(US_TRIGGER_PIN) && defined(US_ECHO_PIN) // only check water level if ultrasonic sensor is configured
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    { // update level reading regularly if pump is running
         if ((pinstate & pinmap[i][1]) != 0)
+        { // check if pump is on and update water level reading if it is
             readWaterLevel(false, false);
-              // unblock pump if water level is known or deliberately ignored
-        if ((sensors.waterLevel > switchesPrefs.minWaterLevel || switchesPrefs.ignoreWaterLevel) && (pinstate & pinmap[i][2]) != 0) {
+        }
+        if ((sensors.waterLevel > switchesPrefs.minWaterLevel || switchesPrefs.ignoreWaterLevel) && (pinstate & pinmap[i][2]) != 0) // unblock pump if water level is known or deliberately ignored
+        {
             pinstate &= ~pinmap[i][2];
             Serial.print(millis());
-            Serial.printf(": Pump unblocked (%swater level %d cm)\n", 
-            switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
-            sprintf(logmsg, "pump unblocked, %swater %dcm", 
-            switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
+            Serial.printf(": Pump unblocked (%swater level %d cm)\n",
+                          switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
+            sprintf(logmsg, "pump unblocked, %swater %dcm",
+                    switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
             logMsg(logmsg);
-// turn off and block pump and valves if water level is unknown due to sensor error
-       } else if (sensors.waterLevel <= switchesPrefs.minWaterLevel &&
-            !switchesPrefs.ignoreWaterLevel && (pinstate & pinmap[i][2]) == 0) {
-             Serial.print(millis());
-             if (sensors.waterLevel <= 0) {
-              Serial.println(F(": WARNING: System blocked (unknown water level)"));
-              logMsg("system blocked, unknown water level");
-             } else {
-               Serial.printf(": WARNING: Low water level %d cm\n", sensors.waterLevel);
-               sprintf(logmsg, "low water, %dcm", sensors.waterLevel);
-               logMsg(logmsg);
-             }
-        pumpoff = true;
-        for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
-            pinstate |= pinmap[i][2]; // block all relay
-      }  
-    }
- 
-#endif
-
-    // turn off pump if auto-stop time has been reached 
-    // time limit is checked to avoid accidental overwatering
-    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
-      if ((pinstate & pinmap[i][1]) != 0) {
-          if ((getLocalTime() - pintime[i]) > switchesPrefs.pumpAutoStopSecs) {
-              setRelay(i, false);
-              Serial.print(millis());
-              Serial.printf(": Pump autostop, %d secs\n", switchesPrefs.pumpAutoStopSecs);
-              sprintf(logmsg, "pump autostop, %d secs", switchesPrefs.pumpAutoStopSecs);
-              logMsg(logmsg);
-              if (i == ((sizeof(pinmap) / sizeof(pinmap[0])) - 1)){
-                readMoisture(true, true, false);
-                mqtt_send(MQTT_TIMEOUT_MS);
-              }
-          }
-      }
-  }
-}
-
-
-// return current relay/pump status as json string
-uint16_t relayStatus(char *buf, size_t s) {
-    static StaticJsonDocument<128> JSON;
-    char key[8];
-//applied changes to keep javascript correctly updated in the web ui
-    for (uint8_t i = 0; i < (sizeof(pinmap)/sizeof(pinmap[0])); i++) {
-        sprintf(key,"valve%d",i+1);
-        if (switchesPrefs.pinRelay[i] < 0)
-            JSON[key] = -1;  // disabled
-        else if ((pinstate & pinmap[i][2]) != 0)
-            JSON[key] = 2;  // blocked
-        else if ((pinstate & pinmap[i][1]) != 0)
-            JSON[key] = 1;  // on
-        else
-            JSON[key] = 0;  // off
-    }
-    return serializeJson(JSON, buf, s); 
-}
-
-
-
-#else
-
-  // relay pin and relay state value
-// pin_number, state on, state blocked
-uint16_t pinmap[][3] = { 
-    { PUMP_PIN, 0x0001, 0x0002 },
-    { RELAY1_PIN, 0x0004, 0x0008 },
-    { RELAY2_PIN, 0x0010, 0x0020 },
-    { RELAY3_PIN, 0x0040, 0x0080 },
-    { RELAY4_PIN, 0x0100, 0x0200 }
-};
-
-char pinnames[5][7] = {
-    "pump",
-    "valve1",
-    "valve2",
-    "valve3",
-    "valve4"
-};
-// define pins configure as relay control port as
-// output set them high since relay are active low
-void initRelays() {
-    pinMode(switchesPrefs.pinPump, OUTPUT);
-    digitalWrite(switchesPrefs.pinPump, 0); // active high
-    for (uint8_t i = 0; i <= 4; i++) {
-        pinMode(switchesPrefs.pinRelay[i-1], OUTPUT);
-        digitalWrite(switchesPrefs.pinRelay[i-1], 1);
-    }
-}
-
-// switch relay on/off; also takes care of 
-// blocking relay for certain time after last 
-// being turned on and switching pump on/off 
-void setRelay(uint8_t num, bool on) {
-    bool valveOpen = false;
-    char logmsg[32];
-
-    if (num != 0) { // valves only
-        if (on) {
-            if ((pinstate & pinmap[num][2]) == 0) {
-                if ((pinstate & pinmap[num][1]) == 0) {
-                    digitalWrite(pinmap[num][0], 0); // active low
-                    pinstate |= pinmap[num][1];
-                    pinstate &= ~pinmap[num][2];
-                    Serial.print(millis());
-                    Serial.printf(": Opened %s\n", pinnames[num]);
-                    sprintf(logmsg, "%s on", pinnames[num]);
-                    logMsg(logmsg);
-
-                    // block other relay if one is open to keep up pressure
-                    for (uint8_t i = 1; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
-                        if (i != num)
-                            pinstate |= pinmap[i][2];
-                    }
-                }
-            } else {
-                Serial.print(millis());
-                Serial.printf(": Relay %s blocked!\n", pinnames[num]);
-                return;
+            // turn off and block pump and valves if water level is unknown due to sensor error
+        }
+        else if (sensors.waterLevel <= switchesPrefs.minWaterLevel &&
+                 !switchesPrefs.ignoreWaterLevel && (pinstate & pinmap[i][2]) == 0) // check if water level is below configured minimum and not deliberately ignored and pump is not already blocked, if so turn off and block pump and valves to prevent running dry and log action
+        {
+            Serial.print(millis());
+            if (sensors.waterLevel <= 0)
+            {
+                Serial.println(F(": WARNING: System blocked (unknown water level)"));
+                logMsg("system blocked, unknown water level");
             }
-        } else {
-            if ((pinstate & pinmap[num][1]) != 0) {
-                digitalWrite(pinmap[num][0], 1);
-                pintime[num] = getLocalTime(); // remember open valve time
-                pinstate &= ~pinmap[num][1];
-                pinstate |= pinmap[num][2]; // blocks this relay for a while
-                Serial.print(millis());
-                Serial.printf(": Closed %s\n", pinnames[num]);
-                sprintf(logmsg, "%s off", pinnames[num]);
+            else
+            {
+                Serial.printf(": WARNING: Low water level %d cm\n", sensors.waterLevel);
+                sprintf(logmsg, "low water, %dcm", sensors.waterLevel);
                 logMsg(logmsg);
             }
+            pumpoff = true;
+            for (uint8_t j = 0; j < (sizeof(pinmap) / sizeof(pinmap[0])); j++)
+                pinstate |= pinmap[j][2]; // block all relay
         }
-    }
-
-    // turn on pump if at least one valve is open
-    for (uint8_t i = 1; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
-        if ((pinstate & pinmap[i][1]) != 0)
-            valveOpen = true;
-    }
-
-    // switch pump
-    if (valveOpen || (!num && on)) {   
-        if ((pinstate & pinmap[0][1]) == 0) {
-            pintime[0] = getLocalTime(); 
-            digitalWrite(switchesPrefs.pinPump, 1);
-            pinstate |= pinmap[0][1];
-            Serial.print(millis());
-            Serial.println(F(": Pump on"));
-            sprintf(logmsg, "pump on, water %dcm", sensors.waterLevel);
-            logMsg(logmsg);
-        }
-    } else if (!valveOpen || (!num && !on)) {
-        if ((pinstate & pinmap[0][1]) != 0) {
-            digitalWrite(switchesPrefs.pinPump, 0);
-            pinstate &= ~pinmap[0][1];
-            Serial.print(millis());
-            Serial.println(F(": Pump off"));
-            sprintf(logmsg, "pump off, water %dcm", sensors.waterLevel);
-            logMsg(logmsg);
-        }
-    }
-}
-// check if any relay can be unblocked
-void unblockRelays() {
-    uint32_t blockTimeSecs;
-
-    // don't unblock relay if pump currently blocked (e.g. due to low water level)
-    if ((pinstate & pinmap[0][2]) != 0)
-        return;
-
-    // don't unblock other relay if one valve is currently open
-    for (uint8_t i = 1; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
-        if ((pinstate & pinmap[i][1]) != 0)
-            return;
-    }
-
-    for (uint8_t i = 1; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) {
-        blockTimeSecs = getLocalTime() - pintime[i];
-        if ((pinstate & pinmap[i][2]) != 0 && blockTimeSecs > (switchesPrefs.relaysBlockMins * 60)) {
-            pinstate &= ~pinmap[i][2];
-        }
-    } 
-}
-
-// prevent water pump from running dry
-// turn off pump automatically after configured auto stop
-// timeout or if water level reaches lower limit
-void pumpAutoStop() {
-    static char logmsg[48];
-    bool pumpoff = false;
-
-#if defined(US_TRIGGER_PIN) && defined(US_ECHO_PIN)
-    // update level reading regularly if pump is running
-    if ((pinstate & pinmap[0][1]) != 0)
-        readWaterLevel(false, false);
-
-    // unblock pump if water level is known or deliberately ignored
-    if ((sensors.waterLevel > switchesPrefs.minWaterLevel || 
-            switchesPrefs.ignoreWaterLevel) && (pinstate & pinmap[0][2]) != 0) {
-        pinstate &= ~pinmap[0][2];
-        Serial.print(millis());
-        Serial.printf(": Pump unblocked (%swater level %d cm)\n", 
-            switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
-        sprintf(logmsg, "pump unblocked, %swater %dcm", 
-            switchesPrefs.ignoreWaterLevel ? "ignoring " : "", sensors.waterLevel);
-        logMsg(logmsg);
-
-    // turn off and block pump and valves if water level is unknown due to sensor error
-    } else if (sensors.waterLevel <= switchesPrefs.minWaterLevel &&
-            !switchesPrefs.ignoreWaterLevel && (pinstate & pinmap[0][2]) == 0) {
-        Serial.print(millis());
-        if (sensors.waterLevel <= 0) {
-            Serial.println(F(": WARNING: System blocked (unknown water level)"));
-            logMsg("system blocked, unknown water level");
-        } else {
-            Serial.printf(": WARNING: Low water level %d cm\n", sensors.waterLevel);
-            sprintf(logmsg, "low water, %dcm", sensors.waterLevel);
-            logMsg(logmsg);
-        }
-        pumpoff = true;
-        for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
-            pinstate |= pinmap[i][2]; // block all relay
     }
 #endif
 
-    // turn off pump if auto-stop time has been reached 
+    // turn off pump if auto-stop time has been reached
     // time limit is checked to avoid accidental overwatering
-    if ((pinstate & pinmap[i][1]) != 0) {
-        if ((getLocalTime() - pintime[0]) > switchesPrefs.pumpAutoStopSecs) {
-            pumpoff = true;
-            Serial.print(millis());
-            Serial.printf(": Pump autostop, %d secs\n", switchesPrefs.pumpAutoStopSecs);
-            sprintf(logmsg, "pump autostop, %d secs", switchesPrefs.pumpAutoStopSecs);
-            logMsg(logmsg);
-        }
-
-        // block all valves and then turn off pump
-        if (pumpoff) {
-            for (int8_t i = ((sizeof(pinmap) / sizeof(pinmap[0])) - 1); i >= 0; i--)
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
+        if ((pinstate & pinmap[i][1]) != 0)
+        {
+            if ((getLocalTime() - pintime[i]) > switchesPrefs.pumpAutoStopSecs)
+            {
                 setRelay(i, false);
-            readMoisture(true, true, false);
-            mqtt_send(MQTT_TIMEOUT_MS);
+                Serial.print(millis());
+                Serial.printf(": Pump autostop, %d secs\n", switchesPrefs.pumpAutoStopSecs);
+                sprintf(logmsg, "pump autostop, %d secs", switchesPrefs.pumpAutoStopSecs);
+                logMsg(logmsg);
+                if (i == ((sizeof(pinmap) / sizeof(pinmap[0])) - 1))
+                {
+                    readMoisture(true, true, false);
+                    mqtt_send(MQTT_TIMEOUT_MS);
+                }
+            }
         }
     }
 }
 
 // return current relay/pump status as json string
-uint16_t relayStatus(char *buf, size_t s) {
+uint16_t relayStatus(char *buf, size_t s)
+{
     static StaticJsonDocument<128> JSON;
-    for (uint8_t i = 0; i < (sizeof(pinmap)/sizeof(pinmap[0])); i++) {
-        if (i > 0 && switchesPrefs.pinRelay[i-1] < 0)
-            JSON[pinnames[i]] = -1;  // disabled
+    char key[8];
+    // applied changes to keep javascript correctly updated in the web ui
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
+        sprintf(key, "valve%d", i + 1);
+        if (switchesPrefs.pinRelay[i] < 0)
+            JSON[key] = -1; // disabled
         else if ((pinstate & pinmap[i][2]) != 0)
-            JSON[pinnames[i]] = 2;  // blocked
+            JSON[key] = 2; // blocked
         else if ((pinstate & pinmap[i][1]) != 0)
-            JSON[pinnames[i]] = 1;  // on
+            JSON[key] = 1; // on
         else
-            JSON[pinnames[i]] = 0;  // off
+            JSON[key] = 0; // off
     }
-    return serializeJson(JSON, buf, s); 
+    return serializeJson(JSON, buf, s);
 }
-
-
-#endif
-

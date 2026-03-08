@@ -1,0 +1,11 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Wokwi: Start Simulator",
+            "type": "shell",
+            "command": "echo 'Wokwi se lanzará al depurar'",
+            "problemMatcher": []
+        }
+    ]
+}

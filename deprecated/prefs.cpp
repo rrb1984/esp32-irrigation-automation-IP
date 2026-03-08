@@ -7,7 +7,7 @@
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-
+   
   http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
@@ -56,17 +56,24 @@ RTC_DATA_ATTR generalPrefs_t generalPrefs = {
 };
 
 RTC_DATA_ATTR switchesPrefs_t switchesPrefs = {
-    {RELAY1_PIN, RELAY2_PIN, RELAY3_PIN, RELAY4_PIN},
-    {RELAY1_LABEL, RELAY2_LABEL, RELAY3_LABEL, RELAY4_LABEL},
-    {MOIST1_PIN, MOIST2_PIN, MOIST3_PIN, MOIST4_PIN},
-    {MOIST1_LABEL, MOIST2_LABEL, MOIST3_LABEL, MOIST4_LABEL},
+    { RELAY1_PIN, RELAY2_PIN, RELAY3_PIN, RELAY4_PIN},
+    { RELAY1_LABEL, RELAY2_LABEL, RELAY3_LABEL, RELAY4_LABEL},
+    { MOIST1_PIN, MOIST2_PIN, MOIST3_PIN, MOIST4_PIN},
+    { MOIST1_LABEL, MOIST2_LABEL, MOIST3_LABEL, MOIST4_LABEL},
     PUMP_PIN,
     PUMP_AUTOSTOP_SECS,
     RELAY_BLOCK_MINS,
+#ifdef ENABLE_AUTO_IRRIGRATION_SCHEDULER
+    true,
+    AUTO_IRRIGRATION_TIME,
+    { AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS },
+    AUTO_IRRIGATION_PAUSE_HOURS,
+#else
     false,
     AUTO_IRRIGRATION_TIME,
-    {AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS},
+    { AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS, AUTO_IRRIGATION_SECS },
     AUTO_IRRIGATION_PAUSE_HOURS,
+#endif
 #ifdef ENABLE_LOGGING
     true,
 #else
@@ -79,25 +86,25 @@ RTC_DATA_ATTR switchesPrefs_t switchesPrefs = {
     MOISTURE_VALUE_WATER,
     false,
     true,
-    {MOISTURE1_VAL_THRESOLD, MOISTURE2_VAL_THRESOLD, MOISTURE3_VAL_THRESOLD, MOISTURE4_VAL_THRESOLD}};
+    {MOISTURE1_VAL_THRESOLD, MOISTURE2_VAL_THRESOLD, MOISTURE3_VAL_THRESOLD, MOISTURE4_VAL_THRESOLD}
+};
 
 // use NVS to store settings to survive
 // a system reset (cold start) or reflash
 Preferences nvs;
 
+
 // initialize NVS to (permanently) store system settings
-void initPrefs()
-{
+void initPrefs() {
     nvs.begin("prefs", false);
 }
 
+
 // load system settings from NVS
-void restorePrefs()
-{
+void restorePrefs() {
     size_t prefSize;
 
-    if (nvs.getBool("general"))
-    {
+    if (nvs.getBool("general")) {
         prefSize = nvs.getBytesLength("generalPrefs");
         byte bufGeneralPrefs[prefSize];
         nvs.getBytes("generalPrefs", bufGeneralPrefs, prefSize);
@@ -106,9 +113,8 @@ void restorePrefs()
         Serial.print(prefSize);
         Serial.println(" bytes).");
     }
-
-    if (nvs.getBool("switches"))
-    {
+    
+	if (nvs.getBool("switches")) {
         prefSize = nvs.getBytesLength("switchesPrefs");
         byte bufSwitchesPrefs[prefSize];
         nvs.getBytes("switchesPrefs", bufSwitchesPrefs, prefSize);

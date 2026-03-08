@@ -1,0 +1,28 @@
+// AUTOMATICALLY GENERATED FILE. PLEASE DO NOT MODIFY IT MANUALLY
+//
+// PlatformIO Debugging Solution
+//
+// Documentation: https://docs.platformio.org/en/latest/plus/debugging.html
+// Configuration: https://docs.platformio.org/en/latest/projectconf/sections/env/options/debug/index.html
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+    "name": "Wokwi Final Debug",
+    "type": "cppdbg",
+    "request": "launch",
+    "program": "${workspaceFolder}/.pio/build/wokwi/firmware.elf",
+    "cwd": "${workspaceFolder}",
+    "MIMode": "gdb",
+    "miDebuggerPath": "C:/Users/rrb19/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-gdb.exe",
+    "miDebuggerServerAddress": "localhost:1234",
+    "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "text": "set confirm off", "ignoreFailures": true }
+    ],
+    "externalConsole": false,
+    "logging": { "engineLogging": false } 
+}
+    ]
+}
