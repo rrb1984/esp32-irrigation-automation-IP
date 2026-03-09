@@ -1,8 +1,8 @@
 [wokwi]
 version = 1
 # ¡IMPORTANTE! Reemplaza 'esp32dev' por el nombre de tu entorno PIO
-firmware = '.pio/build/wokwi_debug/firmware_combined_for_wokwi.bin'
-elf = '.pio/build/wokwi_debug/firmware.elf'
+firmware = '.pio/build/wokwi/firmware_combined_for_wokwi.bin'
+elf = '.pio/build/wokwi/firmware.elf'
 gdbServerPort = 1234
 [net]
 gateway = "ws://localhost:9011"
