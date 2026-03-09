@@ -132,7 +132,7 @@ bool mqtt_connect(uint16_t timeoutMillis)
 // will implicitly call mqtt_init()
 bool mqtt_send(uint16_t timeoutMillis)
 {
-    StaticJsonDocument<384> JSON;
+    JsonDocument JSON;
     static char status[64], topic[64], buf[192], label[16];
 
     if (!wifi_uplink(false))

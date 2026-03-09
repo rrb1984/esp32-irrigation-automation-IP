@@ -7,7 +7,7 @@
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-   
+
   http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
@@ -17,7 +17,6 @@
   limitations under the License.
 
 ***************************************************************************/
-
 
 #include "web.h"
 #include "config.h"
@@ -41,16 +40,17 @@ static uint16_t webserverTimeout = 0;
 
 WebServer webserver(80);
 
-
 // pass sensor readings, system status to web ui as JSON
-static void updateUI() {
+static void updateUI()
+{
     static char buf[192], label[16];
-    static StaticJsonDocument<384> JSON;
+    JsonDocument JSON;
 
     memset(buf, 0, sizeof(buf));
     JSON.clear();
     JSON["logging"] = switchesPrefs.enableLogging ? 1 : 0;
-    if (getLocalTime() > 1609455600) {  // RTC already set?
+    if (getLocalTime() > 1609455600)
+    { // RTC already set?
         JSON["date"] = getDateString();
         JSON["time"] = getTimeString(false);
         JSON["tz"] = getTimeZone();
@@ -58,8 +58,9 @@ static void updateUI() {
     JSON["runtime"] = getRuntime(busyTime);
     JSON["wifi"] = wifi_uplink(false) ? 1 : 0;
 #if defined(HAS_HTU21D) || defined(HAS_DHT122)
-	char temp[8];
-    if (sensors.humidity > 0) {
+    char temp[8];
+    if (sensors.humidity > 0)
+    {
         dtostrf(sensors.temperature, 4, 1, temp);
         JSON["temp"] = temp;
         JSON["hum"] = sensors.humidity;
@@ -71,9 +72,11 @@ static void updateUI() {
     else
         JSON["level"] = -2;
 #endif
-    for (uint8_t i = 0; i < NUM_MOISTURE_SENSORS; i++) {
-        if (switchesPrefs.pinMoisture[i] > 0) {
-            sprintf(label, "moist%d", i+1);
+    for (uint8_t i = 0; i < NUM_MOISTURE_SENSORS; i++)
+    {
+        if (switchesPrefs.pinMoisture[i] > 0)
+        {
+            sprintf(label, "moist%d", i + 1);
             JSON[label] = sensors.moisture[i];
         }
     }
@@ -87,11 +90,12 @@ static void updateUI() {
         webserver.send(500, "text/plan", "ERR");
 }
 
-
-void webserver_start() {
+void webserver_start()
+{
 
     // send main page
-    webserver.on("/", HTTP_GET, []() {
+    webserver.on("/", HTTP_GET, []()
+                 {
         String html = FPSTR(HEADER_html);
         char buf[32];
 
@@ -113,50 +117,65 @@ void webserver_start() {
         html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
         html.replace("__BUILD__", String(__DATE__)+" "+String(__TIME__));
         //Serial.println(html);
-        webserver.send(200, "text/html", html);
-    });
+        webserver.send(200, "text/html", html); });
 
     // AJAX request from main page to update readings
     webserver.on("/ui", HTTP_GET, updateUI);
 
 #ifndef ENABLE_AUTO_IRRIGRATION_SCHEDULER
-    // set/check valves -1 value 
-    webserver.on("/valve", HTTP_GET, []() {
-        char reply[64];
-        if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4) {
-            setRelay(webserver.arg("on").toInt()-1, true);
-        } else if (webserver.arg("off").toInt() >= 1 && webserver.arg("off").toInt() <= 4) {
-            setRelay(webserver.arg("off").toInt()-1, false);
-        }
-        if (relayStatus(reply, sizeof(reply)) > 0) {
-            webserver.send(200, F("application/json"), reply);
-        } else {
-            webserver.send(500, "text/plain", "ERR");
-        }
-        if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
-            mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
-    });
+    // set/check valves -1 value
+    webserver.on("/valve", HTTP_GET, []()
+                 {
+                     char reply[64];
+                     if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4)
+                     {
+                         setRelay(webserver.arg("on").toInt() - 1, true);
+                     }
+                     else if (webserver.arg("off").toInt() >= 1 && webserver.arg("off").toInt() <= 4)
+                     {
+                         setRelay(webserver.arg("off").toInt() - 1, false);
+                     }
+                     if (relayStatus(reply, sizeof(reply)) > 0)
+                     {
+                         webserver.send(200, F("application/json"), reply);
+                     }
+                     else
+                     {
+                         webserver.send(500, "text/plain", "ERR");
+                     }
+                     if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
+                         mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
+                 });
 #else
-    // set/check valves -1 value 
-    webserver.on("/valve", HTTP_GET, []() {
-        char reply[64];
-        if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4) {
-            setRelay(webserver.arg("on").toInt(), true);
-        } else if (webserver.arg("off").toInt() >= 1 && webserver.arg("off").toInt() <= 4) {
-            setRelay(webserver.arg("off").toInt(), false);
-        }
-        if (relayStatus(reply, sizeof(reply)) > 0) {
-            webserver.send(200, F("application/json"), reply);
-        } else {
-            webserver.send(500, "text/plain", "ERR");
-        }
-        if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
-            mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
-    });
+    // set/check valves -1 value
+    webserver.on("/valve", HTTP_GET, []()
+                 {
+                     char reply[64];
+                     if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4)
+                     {
+                         setRelay(webserver.arg("on").toInt(), true);
+                     }
+                     else if (webserver.arg("off").toInt() >= 1 && webserver.arg("off").toInt() <= 4)
+                     {
+                         setRelay(webserver.arg("off").toInt(), false);
+                     }
+                     if (relayStatus(reply, sizeof(reply)) > 0)
+                     {
+                         webserver.send(200, F("application/json"), reply);
+                     }
+                     else
+                     {
+                         webserver.send(500, "text/plain", "ERR");
+                     }
+                     if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
+                         mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
+                 });
 #endif
     // show page with log files
-    if (switchesPrefs.enableLogging) {
-        webserver.on("/logs", HTTP_GET, []() {
+    if (switchesPrefs.enableLogging)
+    {
+        webserver.on("/logs", HTTP_GET, []()
+                     {
             logMsg("show logs");
             uint32_t freeBytes = LittleFS.totalBytes() * 0.95 - LittleFS.usedBytes();
             String html = FPSTR(HEADER_html);
@@ -168,19 +187,19 @@ void webserver_start() {
             html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
             html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
             webserver.send(200, "text/html", html);
-            Serial.println(F("Show log files."));
-        });
+            Serial.println(F("Show log files.")); });
 
         // delete all log files
-        webserver.on("/rmlogs", HTTP_GET, []() {
+        webserver.on("/rmlogs", HTTP_GET, []()
+                     {
             logMsg("remove logs");
             removeLogs();
-            webserver.send(200, "text/plain", "OK");
-        });
+            webserver.send(200, "text/plain", "OK"); });
     }
 
     // handle request to update firmware
-    webserver.on("/update", HTTP_GET, []() {
+    webserver.on("/update", HTTP_GET, []()
+                 {
         String html = FPSTR(HEADER_html);
         html += FPSTR(UPDATE_html);
         html += FPSTR(FOOTER_html);
@@ -188,11 +207,11 @@ void webserver_start() {
         html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
         html.replace("__DISPLAY__", "display:none;");
         webserver.send(200, "text/html", html);
-        Serial.println(F("Show update page."));
-    });
+        Serial.println(F("Show update page.")); });
 
     // handle firmware upload
-    webserver.on("/update", HTTP_POST, []() {
+    webserver.on("/update", HTTP_POST, []()
+                 {
         String html = FPSTR(HEADER_html);
         if (Update.hasError()) {
             html += FPSTR(UPDATE_ERR_html);
@@ -204,8 +223,8 @@ void webserver_start() {
         html += FPSTR(FOOTER_html);
         html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
         html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-        webserver.send(200, "text/html", html);
-    }, []() {
+        webserver.send(200, "text/html", html); }, []()
+                 {
         HTTPUpload& upload = webserver.upload();
         if (upload.status == UPLOAD_FILE_START) {
             Serial.println(F("Starting OTA update..."));
@@ -225,11 +244,11 @@ void webserver_start() {
                 Update.printError(Serial);
             }
         }
-        esp_task_wdt_reset();
-    });
+        esp_task_wdt_reset(); });
 
     // show network settings
-    webserver.on("/network", HTTP_GET, []() {
+    webserver.on("/network", HTTP_GET, []()
+                 {
         String html;
         html += HEADER_html;
         html += NETWORK_html;
@@ -262,11 +281,11 @@ void webserver_start() {
 
         webserver.send(200, "text/html", html);
         Serial.print(millis());
-        Serial.println(F(": Show network settings"));
-    });
+        Serial.println(F(": Show network settings")); });
 
     // save network settings to NVS
-    webserver.on("/network", HTTP_POST, []() {
+    webserver.on("/network", HTTP_POST, []()
+                 {
         logMsg("webui save network prefs");
 
         if (webserver.arg("appassword").length() >= 8 && webserver.arg("appassword").length() <= 32)
@@ -306,11 +325,11 @@ void webserver_start() {
         webserver.sendHeader("Location", "/network?saved=1", true);
         webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Network settings saved"));
-    });
+        Serial.println(F(": Network settings saved")); });
 
     // show pin settings
-    webserver.on("/pins", HTTP_GET, []() {
+    webserver.on("/pins", HTTP_GET, []()
+                 {
         String html;
         char buf[32];
         html += HEADER_html;
@@ -349,11 +368,11 @@ void webserver_start() {
 
         webserver.send(200, "text/html", html);
         Serial.print(millis());
-        Serial.println(F(": Show pin settings"));
-    });
+        Serial.println(F(": Show pin settings")); });
 
     // save pin settings to NVS
-    webserver.on("/pins", HTTP_POST, []() {
+    webserver.on("/pins", HTTP_POST, []()
+                 {
         char buf[32];
 
         logMsg("webui save pin prefs");
@@ -401,11 +420,11 @@ void webserver_start() {
         webserver.sendHeader("Location", "/pins?saved=1", true);
         webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Pin settings saved"));
-    });
+        Serial.println(F(": Pin settings saved")); });
 
     // show irrgation settings
-    webserver.on("/config", HTTP_GET, []() {
+    webserver.on("/config", HTTP_GET, []()
+                 {
         String html;
         char buf[32];
         html += HEADER_html;
@@ -446,11 +465,11 @@ void webserver_start() {
 
         webserver.send(200, "text/html", html);
         Serial.print(millis());
-        Serial.println(F(": Show main settings"));
-    });
+        Serial.println(F(": Show main settings")); });
 
     // save main settings to NVS
-    webserver.on("/config", HTTP_POST, []() {
+    webserver.on("/config", HTTP_POST, []()
+                 {
         char buf[32];
 
         logMsg("webui save main prefs");
@@ -495,39 +514,40 @@ void webserver_start() {
         webserver.sendHeader("Location", "/config?saved=1", true);
         webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Main settings saved"));
-    });
+        Serial.println(F(": Main settings saved")); });
 
-    if (switchesPrefs.enableLogging) {
-        webserver.on("/sendlogs", HTTP_GET, []() {
+    if (switchesPrefs.enableLogging)
+    {
+        webserver.on("/sendlogs", HTTP_GET, []()
+                     {
         logMsg("send all logs");
-        sendAllLogs();
-        });
+        sendAllLogs(); });
     }
 
     // soft reboot (short deep sleep, RTC memory is preserved)
-    webserver.on("/restart", HTTP_GET, []() {
+    webserver.on("/restart", HTTP_GET, []()
+                 {
         webserver.send(200, "text/plain", "OK");
         logMsg("webui restart");
-        restartSystem();
-    });
+        restartSystem(); });
 
     // triggers ESP.restart() thus RTC memory is lost
-    webserver.on("/reset", HTTP_GET, []() {
+    webserver.on("/reset", HTTP_GET, []()
+                 {
         webserver.send(200, "text/plain", "OK");
         logMsg("webui reset");
-        resetSystem();
-    });
+        resetSystem(); });
 
-    webserver.on("/delnvs", HTTP_GET, []() {
+    webserver.on("/delnvs", HTTP_GET, []()
+                 {
         logMsg("webui delnvs");
         nvs.clear();
         Serial.print(millis());
         Serial.println(F(": All settings in NVS removed"));
-        webserver.send(200, "text/plain", "OK");
-    });
+        webserver.send(200, "text/plain", "OK"); });
 
-    webserver.onNotFound([]() {
+    webserver.onNotFound([]()
+                         {
         String html;
 
         // send main page
@@ -539,35 +559,36 @@ void webserver_start() {
         // send log file(s)
         } else if (!handleSendFile(webserver.uri()) && switchesPrefs.enableLogging) { 
             webserver.send(404, "text/plain", "Error 404: file not found");
-        }
-    });
+        } });
 
     webserver.begin();
     Serial.print(millis());
     Serial.println(F(": Webserver started."));
 }
 
-
 // change webserver timeout and reset its timer
-void webserver_settimeout(uint16_t timeoutSecs) {
-    if (webserverTimeout != timeoutSecs) {
+void webserver_settimeout(uint16_t timeoutSecs)
+{
+    if (webserverTimeout != timeoutSecs)
+    {
         Serial.printf("Set webserver timeout to %d secs.\n", timeoutSecs);
         webserverTimeout = timeoutSecs;
     }
 }
 
-
 // reset timeout countdown
-void webserver_tickle() {
+void webserver_tickle()
+{
     webserverRequestMillis = millis();
 }
 
-
-bool webserver_stop(bool force) {
-    if (!force && (millis() - webserverRequestMillis) < (webserverTimeout*1000))
+bool webserver_stop(bool force)
+{
+    if (!force && (millis() - webserverRequestMillis) < (webserverTimeout * 1000))
         return false;
 
-    if (webserverRequestMillis > 0) {
+    if (webserverRequestMillis > 0)
+    {
         webserver.stop();
         webserverRequestMillis = 0;
         Serial.print(millis());

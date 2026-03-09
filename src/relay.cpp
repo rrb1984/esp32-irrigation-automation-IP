@@ -204,7 +204,7 @@ void pumpAutoStop()
 // return current relay/pump status as json string
 uint16_t relayStatus(char *buf, size_t s)
 {
-    static StaticJsonDocument<128> JSON;
+    JsonDocument JSON;
     char key[8];
     // applied changes to keep javascript correctly updated in the web ui
     for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
