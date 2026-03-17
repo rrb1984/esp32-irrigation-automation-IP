@@ -40,6 +40,112 @@ static uint16_t webserverTimeout = 0;
 
 WebServer webserver(80);
 
+#ifdef LANG_DE
+static const char *UI_LANG_SUFFIX = "_de";
+#else
+static const char *UI_LANG_SUFFIX = "_en";
+#endif
+
+static bool streamUiPage(const char *pageName)
+{
+    String path = "/";
+    path += pageName;
+    path += UI_LANG_SUFFIX;
+    path += ".html";
+
+    String gzPath = path + ".gz";
+    if (LittleFS.exists(gzPath))
+    {
+        File file = LittleFS.open(gzPath, "r");
+        if (file && !file.isDirectory())
+        {
+            // streamFile auto-adds Content-Encoding: gzip for .gz filenames
+            webserver.sendHeader("Cache-Control", "no-cache");
+            webserver.streamFile(file, "text/html");
+            file.close();
+            return true;
+        }
+    }
+
+    File file = LittleFS.open(path, "r");
+    if (file && !file.isDirectory())
+    {
+        webserver.sendHeader("Cache-Control", "no-cache");
+        webserver.streamFile(file, "text/html");
+        file.close();
+        return true;
+    }
+
+    return false;
+}
+
+static void updateConfig()
+{
+    static char buf[2048], key[24];
+    JsonDocument JSON;
+
+    memset(buf, 0, sizeof(buf));
+    JSON.clear();
+
+    JSON["system_id"] = systemID();
+    JSON["water_reservoir_height"] = switchesPrefs.waterReservoirHeight;
+    JSON["min_water_level"] = switchesPrefs.minWaterLevel;
+
+    for (uint8_t i = 1; i <= NUM_RELAY; i++)
+    {
+        sprintf(key, "relay%d_label", i);
+        JSON[key] = switchesPrefs.labelRelay[i - 1];
+        sprintf(key, "relay%d_pin", i);
+        JSON[key] = switchesPrefs.pinRelay[i - 1];
+        sprintf(key, "irrigation_relay%d_secs", i);
+        JSON[key] = switchesPrefs.autoIrrigationSecs[i - 1];
+    }
+
+    for (uint8_t i = 1; i <= NUM_MOISTURE_SENSORS; i++)
+    {
+        sprintf(key, "moist%d_label", i);
+        JSON[key] = switchesPrefs.labelMoisture[i - 1];
+        sprintf(key, "moist%d_pin", i);
+        JSON[key] = switchesPrefs.pinMoisture[i - 1];
+    }
+
+    JSON["relay_pins_csv"] = RELAY_PINS;
+    JSON["moisture_pins_csv"] = MOISTURE_PINS;
+    JSON["moisture_min"] = switchesPrefs.moistureMin;
+    JSON["moisture_max"] = switchesPrefs.moistureMax;
+    JSON["moisture_raw"] = switchesPrefs.moistureRaw ? 1 : 0;
+    JSON["moisture_avg"] = switchesPrefs.moistureMovingAvg ? 1 : 0;
+
+    JSON["auto_irrigation"] = switchesPrefs.enableAutoIrrigation ? 1 : 0;
+    JSON["irrigation_time"] = switchesPrefs.autoIrrigationTime;
+    JSON["irrigation_pause"] = switchesPrefs.autoIrrigationPauseHours;
+    JSON["pump_autostop"] = switchesPrefs.pumpAutoStopSecs;
+    JSON["pump_blocktime"] = switchesPrefs.relaysBlockMins;
+    JSON["reservoir_height"] = switchesPrefs.waterReservoirHeight;
+    JSON["ignore_water_level"] = switchesPrefs.ignoreWaterLevel ? 1 : 0;
+    JSON["logging"] = switchesPrefs.enableLogging ? 1 : 0;
+
+    JSON["stassid"] = generalPrefs.wifiStaSSID;
+    JSON["stapassword"] = generalPrefs.wifiStaPassword;
+    JSON["appassword"] = generalPrefs.wifiApPassword;
+    JSON["mqtt"] = generalPrefs.enableMQTT ? 1 : 0;
+    JSON["mqttbroker"] = generalPrefs.mqttBroker;
+    JSON["mqtttopiccmd"] = generalPrefs.mqttTopicCmd;
+    JSON["mqtttopicstate"] = generalPrefs.mqttTopicState;
+    JSON["mqttinterval"] = generalPrefs.mqttPushInterval;
+    JSON["mqttauth"] = generalPrefs.mqttEnableAuth ? 1 : 0;
+    JSON["mqttuser"] = generalPrefs.mqttUsername;
+    JSON["mqttpassword"] = generalPrefs.mqttPassword;
+
+    JSON["firmware"] = FIRMWARE_VERSION;
+    JSON["build"] = String(__DATE__) + " " + String(__TIME__);
+
+    if (serializeJson(JSON, buf) > 16)
+        webserver.send(200, F("application/json"), buf);
+    else
+        webserver.send(500, "text/plain", "ERR");
+}
+
 // pass sensor readings, system status to web ui as JSON
 static void updateUI()
 {
@@ -92,32 +198,15 @@ static void updateUI()
 
 void webserver_start()
 {
-
     // send main page
     webserver.on("/", HTTP_GET, []()
                  {
-        String html = FPSTR(HEADER_html);
-        char buf[32];
+        if (!streamUiPage("index")) {
+            webserver.send(500, "text/plain", "UI file not found");
+        } });
 
-        html += FPSTR(ROOT_html);
-        html.replace("__SYSTEMID__", systemID());
-        html.replace("__WATER_RESERVOIR_HEIGHT__", String(WATER_RESERVOIR_HEIGHT));
-        html.replace("__MIN_WATER_LEVEL__", String(switchesPrefs.minWaterLevel));
-        for (uint8_t i = 1; i <= NUM_RELAY; i++) {
-            sprintf(buf, "__RELAY%d_LABEL__", i);
-            html.replace(buf, String(switchesPrefs.labelRelay[i-1]));
-
-        }
-        for (uint8_t i = 1; i <= NUM_MOISTURE_SENSORS; i++) {
-            sprintf(buf, "__MOIST%d_LABEL__", i);
-            html.replace(buf, String(switchesPrefs.labelMoisture[i-1]));
-        }
-
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__)+" "+String(__TIME__));
-        //Serial.println(html);
-        webserver.send(200, "text/html", html); });
+    // static configuration for ui pages
+    webserver.on("/cfg", HTTP_GET, updateConfig);
 
     // AJAX request from main page to update readings
     webserver.on("/ui", HTTP_GET, updateUI);
@@ -172,30 +261,27 @@ void webserver_start()
                  });
 #endif
     // show page with log files
-    if (switchesPrefs.enableLogging)
-    {
-        webserver.on("/logs", HTTP_GET, []()
-                     {
-            logMsg("show logs");
-            uint32_t freeBytes = LittleFS.totalBytes() * 0.95 - LittleFS.usedBytes();
-            String html = FPSTR(HEADER_html);
-            html += FPSTR(LOGS_HEADER_html);
-            html.replace("__BYTES_FREE__", String(freeBytes / 1024));
-            html += listDirHTML("/");
-            html += FPSTR(LOGS_FOOTER_html);
-            html += FPSTR(FOOTER_html);
-            html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-            html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-            webserver.send(200, "text/html", html);
-            Serial.println(F("Show log files.")); });
+    webserver.on("/logs", HTTP_GET, []()
+                 {
+        logMsg("show logs");
+        uint32_t freeBytes = LittleFS.totalBytes() * 0.95 - LittleFS.usedBytes();
+        String html = FPSTR(HEADER_html);
+        html += FPSTR(LOGS_HEADER_html);
+        html.replace("__BYTES_FREE__", String(freeBytes / 1024));
+        html += listDirHTML("/");
+        html += FPSTR(LOGS_FOOTER_html);
+        html += FPSTR(FOOTER_html);
+        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
+        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
+        webserver.send(200, "text/html", html);
+        Serial.println(F("Show log files.")); });
 
-        // delete all log files
-        webserver.on("/rmlogs", HTTP_GET, []()
-                     {
-            logMsg("remove logs");
-            removeLogs();
-            webserver.send(200, "text/plain", "OK"); });
-    }
+    // delete all log files
+    webserver.on("/rmlogs", HTTP_GET, []()
+                 {
+        logMsg("remove logs");
+        removeLogs();
+        webserver.send(200, "text/plain", "OK"); });
 
     // handle request to update firmware
     webserver.on("/update", HTTP_GET, []()
@@ -249,37 +335,10 @@ void webserver_start()
     // show network settings
     webserver.on("/network", HTTP_GET, []()
                  {
-        String html;
-        html += HEADER_html;
-        html += NETWORK_html;
-
-        html.replace("__STA_SSID__", String(generalPrefs.wifiStaSSID));
-        html.replace("__STA_PASSWORD__", String(generalPrefs.wifiStaPassword));
-        html.replace("__AP_PASSWORD__", String(generalPrefs.wifiApPassword));
-
-        html.replace("__MQTT_BROKER__", String(generalPrefs.mqttBroker));
-        html.replace("__MQTT_TOPIC_CMD__", String(generalPrefs.mqttTopicCmd));
-        html.replace("__MQTT_TOPIC_STATE__", String(generalPrefs.mqttTopicState));
-        html.replace("__MQTT_TOPIC_STATE__", String(generalPrefs.mqttTopicState));
-        html.replace("__MQTT_INTERVAL__", String(generalPrefs.mqttPushInterval));
-        html.replace("__MQTT_USERNAME__", String(generalPrefs.mqttUsername));
-        html.replace("__MQTT_PASSWORD__", String(generalPrefs.mqttPassword));
-
-        if (generalPrefs.enableMQTT)
-            html.replace("__MQTT__", "checked");
-        else
-            html.replace("__MQTT__", "");
-
-        if (generalPrefs.mqttEnableAuth)
-            html.replace("__MQTT_AUTH__", "checked");
-        else
-            html.replace("__MQTT_AUTH__", "");
-
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-
-        webserver.send(200, "text/html", html);
+        if (!streamUiPage("network")) {
+            webserver.send(500, "text/plain", "UI file not found");
+            return;
+        }
         Serial.print(millis());
         Serial.println(F(": Show network settings")); });
 
@@ -330,43 +389,10 @@ void webserver_start()
     // show pin settings
     webserver.on("/pins", HTTP_GET, []()
                  {
-        String html;
-        char buf[32];
-        html += HEADER_html;
-        html += PINS_html;
-
-        html.replace("__RELAY_PINS__", RELAY_PINS);
-        for (uint8_t i = 1; i <= NUM_RELAY; i++) {
-            sprintf(buf, "__RELAY%d_LABEL__", i);
-            html.replace(buf, String(switchesPrefs.labelRelay[i-1]));
-            sprintf(buf, "__RELAY%d_PIN__", i);
-            html.replace(buf, String(switchesPrefs.pinRelay[i-1]));
+        if (!streamUiPage("pins")) {
+            webserver.send(500, "text/plain", "UI file not found");
+            return;
         }
-
-        html.replace("__MOISTURE_PINS__", MOISTURE_PINS);
-        for (uint8_t i = 1; i <= NUM_MOISTURE_SENSORS; i++) {
-            sprintf(buf, "__MOIST%d_LABEL__", i);
-            html.replace(buf, String(switchesPrefs.labelMoisture[i-1]));
-            sprintf(buf, "__MOIST%d_PIN__", i);
-            html.replace(buf, String(switchesPrefs.pinMoisture[i-1]));
-        }
-
-        html.replace("__MOISTURE_MIN__", String(switchesPrefs.moistureMin));
-        html.replace("__MOISTURE_MAX__", String(switchesPrefs.moistureMax));
-        if (switchesPrefs.moistureRaw)
-            html.replace("__MOISTURE_RAW__", "checked");
-        else
-            html.replace("__MOISTURE_RAW__", "");
-        if (switchesPrefs.moistureMovingAvg)
-            html.replace("__MOISTURE_AVG__", "checked");
-        else
-            html.replace("__MOISTURE_AVG__", "");
-
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-
-        webserver.send(200, "text/html", html);
         Serial.print(millis());
         Serial.println(F(": Show pin settings")); });
 
@@ -425,45 +451,10 @@ void webserver_start()
     // show irrgation settings
     webserver.on("/config", HTTP_GET, []()
                  {
-        String html;
-        char buf[32];
-        html += HEADER_html;
-        html += CONFIG_html;
-
-        if (switchesPrefs.enableAutoIrrigation) 
-            html.replace("__AUTO_IRRIGATION__", "checked");
-        else
-            html.replace("__AUTO_IRRIGATION__", "");
-        html.replace("__IRRIGATION_TIME__", String(switchesPrefs.autoIrrigationTime));
-        html.replace("__IRRIGATION_PAUSE__", String(switchesPrefs.autoIrrigationPauseHours));
-
-        for (uint8_t i = 1; i <= NUM_RELAY; i++) {
-            sprintf(buf, "__RELAY%d_LABEL__", i);
-            html.replace(buf, String(switchesPrefs.labelRelay[i-1]));
-            sprintf(buf, "__IRRIGATION_RELAY%d_SECS__", i);
-            html.replace(buf, String(switchesPrefs.autoIrrigationSecs[i-1]));
+        if (!streamUiPage("config")) {
+            webserver.send(500, "text/plain", "UI file not found");
+            return;
         }
-
-        html.replace("__PUMP_AUTOSTOP__", String(switchesPrefs.pumpAutoStopSecs));
-        html.replace("__PUMP_BLOCKTIME__", String(switchesPrefs.relaysBlockMins));
-        html.replace("__RESERVOIR_HEIGHT__", String(switchesPrefs.waterReservoirHeight));
-        html.replace("__MIN_WATER_LEVEL__", String(switchesPrefs.minWaterLevel));
-
-        if (switchesPrefs.ignoreWaterLevel)
-            html.replace("__IGNORE_WATER_LEVEL__", "checked");
-        else
-            html.replace("__IGNORE_WATER_LEVEL__", "");
-
-        if (switchesPrefs.enableLogging)
-            html.replace("__LOGGING__", "checked");
-        else
-            html.replace("__LOGGING__", "");
-
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-
-        webserver.send(200, "text/html", html);
         Serial.print(millis());
         Serial.println(F(": Show main settings")); });
 
@@ -516,13 +507,10 @@ void webserver_start()
         Serial.print(millis());
         Serial.println(F(": Main settings saved")); });
 
-    if (switchesPrefs.enableLogging)
-    {
-        webserver.on("/sendlogs", HTTP_GET, []()
-                     {
+    webserver.on("/sendlogs", HTTP_GET, []()
+                 {
         logMsg("send all logs");
         sendAllLogs(); });
-    }
 
     // soft reboot (short deep sleep, RTC memory is preserved)
     webserver.on("/restart", HTTP_GET, []()
@@ -548,16 +536,15 @@ void webserver_start()
 
     webserver.onNotFound([]()
                          {
-        String html;
-
         // send main page
-        if (webserver.uri().endsWith("/")) {  
-            html += HEADER_html;
-            html += ROOT_html;
-            webserver.send(200, "text/html", html);
+        if (webserver.uri().endsWith("/")) {
+            if (!streamUiPage("index"))
+                webserver.send(404, "text/plain", "Error 404: file not found");
 
         // send log file(s)
         } else if (!handleSendFile(webserver.uri()) && switchesPrefs.enableLogging) { 
+            webserver.send(404, "text/plain", "Error 404: file not found");
+        } else {
             webserver.send(404, "text/plain", "Error 404: file not found");
         } });
 

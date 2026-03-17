@@ -6,6 +6,8 @@
 .vscode/ipch/
 .vscode/.browse.vc.db
 node_modules/
+docs/
+deprecated/
 *.bin
 *.elf
 !firmware_combined_for_wokwi.bin

@@ -25,7 +25,7 @@
 // #define WOKWI_WEB
 #ifdef WOKWI_WEB
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION 121
+#define FIRMWARE_VERSION 2121
 #endif
 #ifndef CORE_DEBUG_LEVEL
 #define CORE_DEBUG_LEVEL 0
@@ -43,7 +43,7 @@
 
 // Valor por defecto si no viene de -DFIRMWARE_VERSION (p.ej. en Wokwi web)
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION 121
+#define FIRMWARE_VERSION 2121
 #endif
 #ifndef CORE_DEBUG_LEVEL
 #define CORE_DEBUG_LEVEL 0
