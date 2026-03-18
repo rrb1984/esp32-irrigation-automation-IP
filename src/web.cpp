@@ -335,12 +335,10 @@ void webserver_start()
     // show network settings
     webserver.on("/network", HTTP_GET, []()
                  {
-        if (!streamUiPage("network")) {
-            webserver.send(500, "text/plain", "UI file not found");
-            return;
-        }
+        webserver.sendHeader("Location", "/", true);
+        webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Show network settings")); });
+        Serial.println(F(": Redirect network route to SPA")); });
 
     // save network settings to NVS
     webserver.on("/network", HTTP_POST, []()
@@ -381,20 +379,17 @@ void webserver_start()
         nvs.putBool("general", true);
         nvs.putBytes("generalPrefs", &generalPrefs, sizeof(generalPrefs));  
 
-        webserver.sendHeader("Location", "/network?saved=1", true);
-        webserver.send(302, "text/plain", "");
+        webserver.send(200, "text/plain", "OK");
         Serial.print(millis());
         Serial.println(F(": Network settings saved")); });
 
     // show pin settings
     webserver.on("/pins", HTTP_GET, []()
                  {
-        if (!streamUiPage("pins")) {
-            webserver.send(500, "text/plain", "UI file not found");
-            return;
-        }
+        webserver.sendHeader("Location", "/", true);
+        webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Show pin settings")); });
+        Serial.println(F(": Redirect pins route to SPA")); });
 
     // save pin settings to NVS
     webserver.on("/pins", HTTP_POST, []()
@@ -443,20 +438,17 @@ void webserver_start()
         if (switchesPrefs.moistureMovingAvg)
             readMoisture(true, false, true);     
 
-        webserver.sendHeader("Location", "/pins?saved=1", true);
-        webserver.send(302, "text/plain", "");
+        webserver.send(200, "text/plain", "OK");
         Serial.print(millis());
         Serial.println(F(": Pin settings saved")); });
 
     // show irrgation settings
     webserver.on("/config", HTTP_GET, []()
                  {
-        if (!streamUiPage("config")) {
-            webserver.send(500, "text/plain", "UI file not found");
-            return;
-        }
+        webserver.sendHeader("Location", "/", true);
+        webserver.send(302, "text/plain", "");
         Serial.print(millis());
-        Serial.println(F(": Show main settings")); });
+        Serial.println(F(": Redirect config route to SPA")); });
 
     // save main settings to NVS
     webserver.on("/config", HTTP_POST, []()
@@ -502,8 +494,7 @@ void webserver_start()
         nvs.putBool("switches", true);
         nvs.putBytes("switchesPrefs", &switchesPrefs, sizeof(switchesPrefs));       
 
-        webserver.sendHeader("Location", "/config?saved=1", true);
-        webserver.send(302, "text/plain", "");
+        webserver.send(200, "text/plain", "OK");
         Serial.print(millis());
         Serial.println(F(": Main settings saved")); });
 
@@ -531,8 +522,10 @@ void webserver_start()
         logMsg("webui delnvs");
         nvs.clear();
         Serial.print(millis());
-        Serial.println(F(": All settings in NVS removed"));
-        webserver.send(200, "text/plain", "OK"); });
+        Serial.println(F(": All settings in NVS removed. Rebooting..."));
+        webserver.send(200, "text/plain", "OK");
+        delay(1000);
+        ESP.restart(); });
 
     webserver.onNotFound([]()
                          {
