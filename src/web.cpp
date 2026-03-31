@@ -29,12 +29,6 @@
 #include "sensors.h"
 #include "prefs.h"
 
-#ifdef LANG_DE
-#include "html_DE.h"
-#else
-#include "html_EN.h"
-#endif
-
 static uint32_t webserverRequestMillis = 0;
 static uint16_t webserverTimeout = 0;
 
@@ -264,21 +258,44 @@ void webserver_start()
                          mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
                  });
 #endif
-    // show page with log files
+    // return log files as JSON for SPA
     webserver.on("/logs", HTTP_GET, []()
                  {
-        logMsg("show logs");
-        uint32_t freeBytes = LittleFS.totalBytes() * 0.95 - LittleFS.usedBytes();
-        String html = FPSTR(HEADER_html);
-        html += FPSTR(LOGS_HEADER_html);
-        html.replace("__BYTES_FREE__", String(freeBytes / 1024));
-        html += listDirHTML("/");
-        html += FPSTR(LOGS_FOOTER_html);
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-        webserver.send(200, "text/html", html);
-        Serial.println(F("Show log files.")); });
+        if (webserver.arg("list") == "1") {
+            static char buf[2048];
+            JsonDocument JSON;
+            memset(buf, 0, sizeof(buf));
+            JSON.clear();
+
+            uint32_t freeBytes = LittleFS.totalBytes() * 0.95 - LittleFS.usedBytes();
+            JSON["free_kb"] = freeBytes / 1024;
+
+            JsonArray files = JSON.createNestedArray("files");
+            File dir = LittleFS.open("/");
+            File file = dir.openNextFile();
+            while (file)
+            {
+                if (!file.isDirectory() && file.name() != NULL)
+                {
+                    String fname = String(file.name());
+                    bool isLog = fname.endsWith(".log") || fname.indexOf(".log.") >= 0;
+                    if (isLog)
+                    {
+                        JsonObject f = files.createNestedObject();
+                        f["name"] = fname;
+                        f["size"] = file.size();
+                    }
+                }
+                file = dir.openNextFile();
+            }
+
+            if (serializeJson(JSON, buf) > 16)
+                webserver.send(200, F("application/json"), buf);
+            else
+                webserver.send(500, "text/plain", "ERR");
+        } else {
+            webserver.send(404, "text/plain", "Logs interface moved to SPA");
+        } });
 
     // delete all log files
     webserver.on("/rmlogs", HTTP_GET, []()
@@ -287,33 +304,41 @@ void webserver_start()
         removeLogs();
         webserver.send(200, "text/plain", "OK"); });
 
-    // handle request to update firmware
-    webserver.on("/update", HTTP_GET, []()
+    // delete single log file
+    webserver.on("/dellogs", HTTP_GET, []()
                  {
-        String html = FPSTR(HEADER_html);
-        html += FPSTR(UPDATE_html);
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-        html.replace("__DISPLAY__", "display:none;");
-        webserver.send(200, "text/html", html);
-        Serial.println(F("Show update page.")); });
+        logMsg("delete log file");
+        String fileName = webserver.arg("file");
+        if (fileName.length() > 0 && fileName.indexOf("/") < 0 && fileName.indexOf("..") < 0)
+        {
+            String path = "/" + fileName;
+            if (path.endsWith(".log") || path.indexOf(".log.") >= 0)
+            {
+                if (LittleFS.exists(path) && LittleFS.remove(path))
+                {
+                    webserver.send(200, "application/json", "{\"status\":\"deleted\"}");
+                    return;
+                }
+            }
+        }
+        webserver.send(404, "application/json", "{\"status\":\"not found\"}"); });
+
+    // firmware update interface moved to SPA
+    webserver.on("/update", HTTP_GET, []()
+                 { webserver.send(200, "application/json", "{\"status\":\"ready\"}"); });
 
     // handle firmware upload
     webserver.on("/update", HTTP_POST, []()
                  {
-        String html = FPSTR(HEADER_html);
         if (Update.hasError()) {
-            html += FPSTR(UPDATE_ERR_html);
+            webserver.send(200, "application/json", "{\"status\":\"error\",\"message\":\"Update failed\"}");
             logMsg("ota failed");
         } else {
-            html += FPSTR(UPDATE_OK_html);
+            webserver.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Update successful\"}");
             logMsg("ota successful");
-        }
-        html += FPSTR(FOOTER_html);
-        html.replace("__FIRMWARE__", String(FIRMWARE_VERSION));
-        html.replace("__BUILD__", String(__DATE__) + " " + String(__TIME__));
-        webserver.send(200, "text/html", html); }, []()
+            delay(2000);
+            ESP.restart();
+        } }, []()
                  {
         HTTPUpload& upload = webserver.upload();
         if (upload.status == UPLOAD_FILE_START) {
@@ -569,7 +594,19 @@ void webserver_start()
 
     webserver.on("/sendlogs", HTTP_GET, []()
                  {
-        logMsg("send all logs");
+        logMsg("send logs");
+        if (webserver.arg("file").length() > 0)
+        {
+            String fileName = webserver.arg("file");
+            if (fileName.indexOf("/") < 0 && fileName.indexOf("..") < 0)
+            {
+                String path = "/" + fileName;
+                if ((path.endsWith(".log") || path.indexOf(".log.") >= 0) && handleSendFile(path))
+                    return;
+            }
+            webserver.send(404, "text/plain", "File not found");
+            return;
+        }
         sendAllLogs(); });
 
     // soft reboot (short deep sleep, RTC memory is preserved)

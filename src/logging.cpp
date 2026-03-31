@@ -26,12 +26,6 @@
 #include "prefs.h"
 #include <WiFi.h>
 
-#ifdef LANG_EN
-#include "html_EN.h"
-#else
-#include "html_DE.h"
-#endif
-
 static bool fsInited = true;
 
 void initLogging()

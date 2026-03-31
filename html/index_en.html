@@ -51,6 +51,10 @@
     .pin-row{display:flex;gap:8px;align-items:center;margin:8px 0}
     .pin-row input{flex:1;margin:0}
     .pin-row select{width:96px;padding:10px;border:1px solid #ddd;border-radius:4px;background:#fff}
+    .log-file{padding:8px;border:1px solid #eee;border-radius:4px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;background:#fafafa}
+    .log-file-name{flex:1;word-break:break-all;font-family:monospace;font-size:0.9em}
+    .log-file-actions{display:flex;gap:4px}
+    .log-file-actions button{padding:4px 8px;font-size:0.8em;width:auto;margin:0}
     .footer{margin-top:20px;padding:16px;border-top:1px solid #eee;font-size:.8em;color:#999}
     .footer a{color:#009374;text-decoration:none}
   </style>
@@ -66,6 +70,8 @@
       <button class="tab-btn" onclick="switchTab('config')">Config</button>
       <button class="tab-btn" onclick="switchTab('network')">Network</button>
       <button class="tab-btn" onclick="switchTab('pins')">Pins</button>
+      <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+      <button class="tab-btn" onclick="switchTab('firmware')">Firmware</button>
     </div>
     
     <div class="content active" id="status">
@@ -149,9 +155,7 @@
       
       <div class="section">
         <h2>System Management</h2>
-        <button id="logBtn" onclick="downloadLogs()" style="display:none">Download Logs</button>
-        <button id="logManageBtn" onclick="location.href='/logs'" style="display:none">Manage Logs</button>
-        <button onclick="location.href='/update'">Update Firmware</button>
+        <!-- Logs and Firmware management moved to dedicated tabs -->
         <button class="bred" onclick="restartSystem()">Restart (Soft)</button>
         <button class="bred" onclick="hardResetSystem()">Hard Reset (Clear RTC)</button>
         <button class="bdark" onclick="factoryReset()">Factory Reset (Clear NVRAM)</button>
@@ -307,6 +311,56 @@
         </form>
       </div>
     </div>
+
+    <div class="content" id="logs">
+      <div class="section">
+        <h2>System Logs</h2>
+        <fieldset>
+          <legend>Available Log Files</legend>
+          <div id="logsList" style="text-align:left"></div>
+          <p>Free Space: <span id="freeSpace">--</span> KB</p>
+        </fieldset>
+        <button onclick="downloadAllLogs()">Download All Logs (ZIP)</button>
+        <button class="bred" onclick="deleteAllLogs()">Delete All Logs</button>
+      </div>
+    </div>
+
+    <div class="content" id="firmware">
+      <div class="section">
+        <h2>Firmware Update</h2>
+        <form onsubmit="return handleFirmwareUpload()">
+          <fieldset>
+            <legend>Upload New Firmware</legend>
+            <p style="text-align:left;color:#666;font-size:0.9em">
+              1. Select firmware file (.bin)<br/>
+              2. Click "Start Update"<br/>
+              3. Wait ~20 seconds for upload<br/>
+              4. System will auto-restart
+            </p>
+            <p class="label">Firmware File</p>
+            <input id="firmwareFile" accept=".bin" required="" type="file"/>
+
+            <div id="uploadProgress" style="display:none;margin-top:12px">
+              <p style="text-align:left">Uploading: <span id="progressText">0%</span></p>
+              <div style="width:100%;height:20px;border:1px solid #ddd;border-radius:4px;overflow:hidden;background:#f5f5f5">
+                <div id="progressBar" style="height:100%;width:0%;background:#009374;transition:width 0.3s"></div>
+              </div>
+            </div>
+
+            <button id="uploadBtn" type="submit">Start Update</button>
+            <button id="cancelBtn" style="display:none" class="bdark" type="button" onclick="cancelUpload()">Cancel</button>
+          </fieldset>
+        </form>
+
+        <div id="updateStatus" style="display:none;margin-top:16px">
+          <fieldset>
+            <legend id="updateStatusTitle">Update Status</legend>
+            <p id="updateStatusMsg"></p>
+          </fieldset>
+          <button onclick="location.reload()">Reload Page</button>
+        </div>
+      </div>
+    </div>
     
     <div class="footer">
       <a href="https://github.com/lrswss/esp32-irrigation-automation" id="fwLink" target="_blank">
@@ -320,8 +374,24 @@
 var cfg={},suspendReadings=false,rdInterval=null;
 function setText(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
 function showMsg(msg,type){var el=document.getElementById("msg");el.textContent=msg;el.className=(type==="ok")?"ok":"err";el.style.display="block";setTimeout(function(){el.style.display="none";},4000);}
-function switchTab(id){document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});document.querySelectorAll(".content").forEach(function(c){c.classList.remove("active");});var btn=document.querySelector("[onclick=\"switchTab('"+id+"')\"]");if(btn)btn.classList.add("active");var ct=document.getElementById(id);if(ct)ct.classList.add("active");}
+function switchTab(id){document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});document.querySelectorAll(".content").forEach(function(c){c.classList.remove("active");});var btn=document.querySelector("[onclick=\"switchTab('"+id+"')\"]");if(btn)btn.classList.add("active");var ct=document.getElementById(id);if(ct)ct.classList.add("active");if(id==="logs"){loadLogsList();}}
 function downloadLogs(){window.location.href="/sendlogs";}
+
+function loadLogsList(){var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){try{var j=JSON.parse(xhr.responseText);var logsList=document.getElementById("logsList");var freeSpace=document.getElementById("freeSpace");freeSpace.textContent=j.free_kb||"--";if(!j.files||j.files.length===0){logsList.innerHTML="<p>No log files</p>";return;}var html="";j.files.forEach(function(f){html+="<div class=\"log-file\"><span class=\"log-file-name\">"+f.name+" ("+f.size+" bytes)</span><div class=\"log-file-actions\"><button onclick=\"downloadLogFile('"+f.name+"')\">Download</button><button class=\"bred\" onclick=\"deleteLogFile('"+f.name+"')\">Delete</button></div></div>";});logsList.innerHTML=html;}catch(e){console.error("Parse error:",e);document.getElementById("logsList").innerHTML="<p>Error loading logs</p>";}}else{document.getElementById("logsList").innerHTML="<p>Logs unavailable</p>";}}};xhr.open("GET","/logs?list=1",true);xhr.send();}
+
+function downloadLogFile(filename){window.location.href="/sendlogs?file="+encodeURIComponent(filename);}
+
+function deleteLogFile(filename){if(!confirm("Delete log file: "+filename+" ?")){return;}var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){showMsg("Log file deleted","ok");loadLogsList();}else{showMsg("Failed to delete log","err");}}};xhr.open("GET","/dellogs?file="+encodeURIComponent(filename),true);xhr.send();}
+
+function downloadAllLogs(){window.location.href="/sendlogs";}
+
+function deleteAllLogs(){if(!confirm("Delete ALL log files? This cannot be undone.")){return;}var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){showMsg("All logs deleted","ok");loadLogsList();}else{showMsg("Failed to delete logs","err");}}};xhr.open("GET","/rmlogs",true);xhr.send();}
+
+var fwUploadXhr=null;
+
+function handleFirmwareUpload(){var fileInput=document.getElementById("firmwareFile");if(!fileInput.files.length){showMsg("Select a firmware file","err");return false;}var file=fileInput.files[0];if(!file.name.endsWith(".bin")){showMsg("File must be .bin format","err");return false;}if(!confirm("Upload firmware ("+file.name+")? Device will restart.")){return false;}var formData=new FormData();formData.append("update",file);fwUploadXhr=new XMLHttpRequest();if(fwUploadXhr.upload){fwUploadXhr.upload.onprogress=function(e){if(e.lengthComputable){var pct=(e.loaded/e.total)*100;document.getElementById("progressBar").style.width=pct+"%";document.getElementById("progressText").textContent=Math.round(pct)+"%";}};}fwUploadXhr.onreadystatechange=function(){if(fwUploadXhr.readyState===4){document.getElementById("uploadProgress").style.display="none";document.getElementById("uploadBtn").style.display="block";document.getElementById("cancelBtn").style.display="none";var response={};try{response=JSON.parse(fwUploadXhr.responseText);}catch(e){}var statusDiv=document.getElementById("updateStatus");var statusMsg=document.getElementById("updateStatusMsg");var statusTitle=document.getElementById("updateStatusTitle");if(fwUploadXhr.status===200){if(response.status==="error"){statusTitle.textContent="Update Failed";statusMsg.textContent=response.message||"Upload failed";statusDiv.style.display="block";showMsg("Firmware update failed","err");}else if(response.status==="ok"){statusTitle.textContent="Update Successful";statusMsg.textContent="Firmware updated! Restarting...";statusDiv.style.display="block";showMsg("Firmware updated! Restarting...","ok");setTimeout(function(){waitForWebAfterRestart(90000);},3000);}}else{statusTitle.textContent="Upload Error";statusMsg.textContent="HTTP Error "+(fwUploadXhr.status||"Unknown");statusDiv.style.display="block";showMsg("Upload error: "+fwUploadXhr.status,"err");}fwUploadXhr=null;}};fwUploadXhr.open("POST","/update",true);document.getElementById("progressBar").style.width="0%";document.getElementById("progressText").textContent="0%";document.getElementById("uploadProgress").style.display="block";document.getElementById("uploadBtn").style.display="none";document.getElementById("cancelBtn").style.display="block";fwUploadXhr.send(formData);return false;}
+
+function cancelUpload(){if(fwUploadXhr){fwUploadXhr.abort();fwUploadXhr=null;}document.getElementById("uploadProgress").style.display="none";document.getElementById("uploadBtn").style.display="block";document.getElementById("cancelBtn").style.display="none";document.getElementById("firmwareFile").value="";showMsg("Upload cancelled","err");}
 
 function parsePinsCsv(csv){
   if(!csv)return[];
@@ -371,7 +441,7 @@ function applyCfg(c){cfg=c;updateLabels();displayPinsInfo();var relayPins=parseP
 
 function loadCfg(cb){var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){try{applyCfg(JSON.parse(xhr.responseText));}catch(e){console.error("Parse error:",e);}}if(cb)cb();}};xhr.open("GET","/cfg",true);xhr.send();}
 
-function getReadings(){if(suspendReadings)return;var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4&&xhr.status===200){var j=JSON.parse(xhr.responseText);var msg=document.getElementById("msg");var loggingEnabled=String(j.logging)==="1";var hasWifiUplink=String(j.wifi)==="1";var hasStaConfig=Boolean((cfg.stassid||"").trim());var warning="";document.getElementById("logBtn").style.display=loggingEnabled?"block":"none";document.getElementById("logManageBtn").style.display=loggingEnabled?"block":"none";if(j.date){setText("Date",j.date);setText("Time",j.time);setText("TZ",j.tz);}if(j.runtime)setText("Runtime",j.runtime);if(j.temp!==undefined){setText("Temp",j.temp);document.getElementById("TempInfo").style.display="table-row";}if(j.hum!==undefined){setText("Hum",j.hum);document.getElementById("HumInfo").style.display="table-row";}if(j.heap!==undefined){setText("Heap",j.heap);document.getElementById("HeapInfo").style.display="table-row";}if(j.level!==undefined){setText("Level",Number(j.level)>0?j.level:"--");var lvl=Number(j.level);if(lvl===-2){warning="Ignoring water level!";}else if(lvl<=Number(cfg.min_water_level||0)||lvl>Number(cfg.reservoir_height||9999)){warning="Check water level!";}document.getElementById("LevelInfo").style.display="table-row";}["moist1","moist2","moist3","moist4"].forEach(function(k,i){if(j[k]!==undefined){var v=Number(j[k]);setText("Moist"+(i+1),v>100?String(v):(v>=0?v+" %":"--"));document.getElementById("moistureSection").style.display="block";document.getElementById("sensor_"+k).style.display="table-row";}});if(warning){msg.textContent=warning;msg.className="err";msg.style.display="block";}else if(!hasWifiUplink&&hasStaConfig){msg.textContent="No WiFi uplink!";msg.className="err";msg.style.display="block";}else if(msg.className!=="ok"){msg.style.display="none";}}};xhr.open("GET","/ui",true);xhr.send();}
+function getReadings(){if(suspendReadings)return;var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4&&xhr.status===200){var j=JSON.parse(xhr.responseText);var msg=document.getElementById("msg");var loggingEnabled=String(j.logging)==="1";var hasWifiUplink=String(j.wifi)==="1";var hasStaConfig=Boolean((cfg.stassid||"").trim());var warning="";if(j.date){setText("Date",j.date);setText("Time",j.time);setText("TZ",j.tz);}if(j.runtime)setText("Runtime",j.runtime);if(j.temp!==undefined){setText("Temp",j.temp);document.getElementById("TempInfo").style.display="table-row";}if(j.hum!==undefined){setText("Hum",j.hum);document.getElementById("HumInfo").style.display="table-row";}if(j.heap!==undefined){setText("Heap",j.heap);document.getElementById("HeapInfo").style.display="table-row";}if(j.level!==undefined){setText("Level",Number(j.level)>0?j.level:"--");var lvl=Number(j.level);if(lvl===-2){warning="Ignoring water level!";}else if(lvl<=Number(cfg.min_water_level||0)||lvl>Number(cfg.reservoir_height||9999)){warning="Check water level!";}document.getElementById("LevelInfo").style.display="table-row";}["moist1","moist2","moist3","moist4"].forEach(function(k,i){if(j[k]!==undefined){var v=Number(j[k]);setText("Moist"+(i+1),v>100?String(v):(v>=0?v+" %":"--"));document.getElementById("moistureSection").style.display="block";document.getElementById("sensor_"+k).style.display="table-row";}});if(warning){msg.textContent=warning;msg.className="err";msg.style.display="block";}else if(!hasWifiUplink&&hasStaConfig){msg.textContent="No WiFi uplink!";msg.className="err";msg.style.display="block";}else if(msg.className!=="ok"){msg.style.display="none";}}};xhr.open("GET","/ui",true);xhr.send();}
 
 function getValveStatus(){var xhr=new XMLHttpRequest();xhr.onreadystatechange=function(){if(xhr.readyState===4&&xhr.status===200){var j=JSON.parse(xhr.responseText);document.getElementById("valveSection").style.display="block";[1,2,3,4].forEach(function(n){if(j["valve"+n]!==undefined&&Number(j["valve"+n])>=0){setValveSwitch(n,Number(j["valve"+n]));document.getElementById("switch_valve"+n).style.display="table-row";}});}};xhr.open("GET","/valve?status",true);xhr.send();}
 
