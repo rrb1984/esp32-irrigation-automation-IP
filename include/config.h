@@ -94,6 +94,8 @@
 // provider-specific behavior (kept off by default)
 #define MQTT_UBIDOTS_STEM_COMPAT true
 #define MQTT_UBIDOTS_DEVICE_LABEL "esp32_irrigation"
+// optional: dedicate a separate device for command variables in Ubidots
+#define MQTT_UBIDOTS_CMD_DEVICE_LABEL "esp32_irrigation_cmd"
 
 // relay pin for water pump
 #define PUMP_PIN 4

@@ -206,6 +206,7 @@ uint16_t relayStatus(char *buf, size_t s)
 {
     JsonDocument JSON;
     char key[8];
+    char label[25];
     // applied changes to keep javascript correctly updated in the web ui
     for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
     {
@@ -218,6 +219,12 @@ uint16_t relayStatus(char *buf, size_t s)
             JSON[key] = 1; // on
         else
             JSON[key] = 0; // off
+        strncpy(label, switchesPrefs.labelRelay[i], sizeof(label) - 1);
+        label[sizeof(label) - 1] = '\0';
+        if (label[0] != '\0')
+        {
+            JSON[label] = JSON[key];
+        }
     }
     return serializeJson(JSON, buf, s);
 }

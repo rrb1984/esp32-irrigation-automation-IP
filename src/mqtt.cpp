@@ -26,6 +26,7 @@
 #include "sensors.h"
 #include "relay.h"
 #include "utils.h"
+#include <stdlib.h>
 
 AsyncMqttClient mqtt;
 static char clientname[64];
@@ -36,6 +37,57 @@ static bool tlsWarningIssued = false;
 static bool callbacksRegistered = false;
 
 static bool mqtt_publish_status();
+
+static void mqtt_cmd_device_label(char *buf, size_t size)
+{
+    if (generalPrefs.mqttUbidotsStemCompat)
+    {
+        snprintf(buf, size - 1, "%s_cmd", generalPrefs.mqttUbidotsDeviceLabel);
+        return;
+    }
+
+    snprintf(buf, size - 1, "%s", generalPrefs.mqttUbidotsDeviceLabel);
+}
+
+static bool mqtt_parse_bool(const char *payload, size_t length, bool *value)
+{
+    if (length == 2 && payload[0] == 'o' && payload[1] == 'n')
+    {
+        *value = true;
+        return true;
+    }
+    if (length == 3 && payload[0] == 'o' && payload[1] == 'f' && payload[2] == 'f')
+    {
+        *value = false;
+        return true;
+    }
+    if (length == 1 && payload[0] == '1')
+    {
+        *value = true;
+        return true;
+    }
+    if (length == 1 && payload[0] == '0')
+    {
+        *value = false;
+        return true;
+    }
+
+    if (length > 0 && length < 16)
+    {
+        char buf[16];
+        memcpy(buf, payload, length);
+        buf[length] = '\0';
+        char *endptr = NULL;
+        double v = strtod(buf, &endptr);
+        if (endptr != buf)
+        {
+            *value = (v >= 0.5);
+            return true;
+        }
+    }
+
+    return false;
+}
 
 static uint8_t mqtt_qos()
 {
@@ -56,13 +108,29 @@ static void mqtt_state_topic(char *topic, size_t size)
 // called if mqtt messages arrive on topics we've subscribed
 static void mqtt_callback(char *topic, const char *payload, size_t length)
 {
-    if (strstr(topic, generalPrefs.mqttTopicCmd) != NULL)
+    if (!generalPrefs.mqttUbidotsStemCompat && strstr(topic, generalPrefs.mqttTopicCmd) == NULL)
+        return;
+
+    if (generalPrefs.mqttUbidotsStemCompat)
     {
-        for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+        static char prefix[96];
+        char cmdDevice[48];
+        mqtt_cmd_device_label(cmdDevice, sizeof(cmdDevice));
+        snprintf(prefix, sizeof(prefix) - 1, "/v1.6/devices/%s/", cmdDevice);
+        if (strstr(topic, prefix) == NULL)
+            return;
+    }
+
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
+        const char *label = switchesPrefs.labelRelay[i];
+        if (strstr(topic, label) == NULL)
+            continue;
+
         {
-            if (strstr(topic, pinnames[i]))
+            bool turnOn = false;
+            if (mqtt_parse_bool(payload, length, &turnOn))
             {
-                bool turnOn = (length == 2 && payload[0] == 'o' && payload[1] == 'n');
                 setRelay(i, turnOn);
                 mqtt_send(MQTT_TIMEOUT_MS);
             }
@@ -82,7 +150,17 @@ static void mqtt_on_connect(bool sessionPresent)
     // subscribe to cmd topics for remote valve switching
     for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
     {
-        snprintf(buf, sizeof(buf) - 1, "%s/%s", generalPrefs.mqttTopicCmd, pinnames[i]);
+        if (generalPrefs.mqttUbidotsStemCompat)
+        {
+            char cmdDevice[48];
+            mqtt_cmd_device_label(cmdDevice, sizeof(cmdDevice));
+            snprintf(buf, sizeof(buf) - 1, "/v1.6/devices/%s/%s/lv",
+                     cmdDevice, switchesPrefs.labelRelay[i]);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf) - 1, "%s/%s", generalPrefs.mqttTopicCmd, switchesPrefs.labelRelay[i]);
+        }
         if (!mqtt.subscribe(buf, qos))
         {
             Serial.print(millis());
@@ -240,7 +318,7 @@ static bool mqtt_publish_status()
 {
     JsonDocument JSON;
     uint8_t qos = mqtt_qos();
-    static char status[64], topic[64], buf[192], label[16];
+    static char status[256], topic[64], buf[512], label[24], valveKey[8];
 
     if (!wifi_uplink(false))
     {
@@ -253,6 +331,18 @@ static bool mqtt_publish_status()
     // create JSON with relay status and sensor readings
     relayStatus(status, sizeof(status));
     deserializeJson(JSON, status);
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
+        snprintf(valveKey, sizeof(valveKey), "valve%d", i + 1);
+        if (JSON.containsKey(valveKey))
+        {
+            if (switchesPrefs.labelRelay[i][0] != '\0')
+            {
+                JSON[switchesPrefs.labelRelay[i]] = JSON[valveKey];
+            }
+            JSON.remove(valveKey);
+        }
+    }
 #if defined(HAS_HTU21D) || defined(HAS_DHT122)
     readTemp(false, false);
     JSON["temp"] = sensors.temperature;

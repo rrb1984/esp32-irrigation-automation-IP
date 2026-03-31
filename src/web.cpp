@@ -213,7 +213,7 @@ void webserver_start()
     // set/check valves -1 value
     webserver.on("/valve", HTTP_GET, []()
                  {
-                     char reply[64];
+                     char reply[256];
                      if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4)
                      {
                          setRelay(webserver.arg("on").toInt() - 1, true);
@@ -237,7 +237,7 @@ void webserver_start()
     // set/check valves -1 value
     webserver.on("/valve", HTTP_GET, []()
                  {
-                     char reply[64];
+                     char reply[256];
                      if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4)
                      {
                          setRelay(webserver.arg("on").toInt(), true);
