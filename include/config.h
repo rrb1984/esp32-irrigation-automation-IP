@@ -78,13 +78,22 @@
 
 // peridocally publish readings with MQTT
 // if a WiFi uplink is preset/available
-// #define MQTT_ENABLE
-#define MQTT_BROKER "node02.myqtthub.com"
+#define MQTT_ENABLE
+#define MQTT_BROKER "industrial.api.ubidots.com"
+#define MQTT_PORT 1883
+#define MQTT_USE_TLS false
 #define MQTT_TOPIC_CMD "irrigation/cmd"
 #define MQTT_TOPIC_STATE "irrigation/state"
 #define MQTT_PUSH_INTERVAL_SECS 120
-#define MQTT_USERNAME "irrigationESP32"
-#define MQTT_PASSWORD "p@ssw0rds3cr3t@"
+#define MQTT_KEEPALIVE_SECS 15
+#define MQTT_QOS 0
+#define MQTT_CLEAN_SESSION true
+#define MQTT_USERNAME "BBUS-c5MemM6Jd1aCKl2Xeub9lDEIsdIEgX"
+#define MQTT_PASSWORD ""
+
+// provider-specific behavior (kept off by default)
+#define MQTT_UBIDOTS_STEM_COMPAT true
+#define MQTT_UBIDOTS_DEVICE_LABEL "esp32_irrigation"
 
 // relay pin for water pump
 #define PUMP_PIN 4

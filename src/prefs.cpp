@@ -24,6 +24,13 @@
 #include "utils.h"
 #include "sensors.h"
 
+static const char *NVS_KEY_GENERAL = "general";
+static const char *NVS_KEY_GENERAL_PREFS = "generalPrefs";
+static const char *NVS_KEY_GENERAL_PREFS_VER = "generalPrefsV";
+static const char *NVS_KEY_SWITCHES = "switches";
+static const char *NVS_KEY_SWITCHES_PREFS = "switchesPrefs";
+static const char *NVS_KEY_SWITCHES_PREFS_VER = "switchesPrefsV";
+
 // instantiate general settings and set default values
 RTC_DATA_ATTR generalPrefs_t generalPrefs = {
     AP_TIMEOUT_SECS,
@@ -36,9 +43,14 @@ RTC_DATA_ATTR generalPrefs_t generalPrefs = {
     false,
 #endif
     MQTT_BROKER,
+    MQTT_PORT,
+    MQTT_USE_TLS,
     MQTT_TOPIC_CMD,
     MQTT_TOPIC_STATE,
     MQTT_PUSH_INTERVAL_SECS,
+    MQTT_KEEPALIVE_SECS,
+    MQTT_QOS,
+    MQTT_CLEAN_SESSION,
 #if defined(MQTT_USERNAME) && defined(MQTT_PASSWORD)
     MQTT_USERNAME,
     MQTT_PASSWORD,
@@ -48,6 +60,8 @@ RTC_DATA_ATTR generalPrefs_t generalPrefs = {
     "none",
     false,
 #endif
+    MQTT_UBIDOTS_STEM_COMPAT,
+    MQTT_UBIDOTS_DEVICE_LABEL,
 #ifdef CLEAR_NVS_FWUPDATE
     true
 #else
@@ -96,25 +110,67 @@ void restorePrefs()
 {
     size_t prefSize;
 
-    if (nvs.getBool("general"))
+    if (nvs.getBool(NVS_KEY_GENERAL))
     {
-        prefSize = nvs.getBytesLength("generalPrefs");
-        byte bufGeneralPrefs[prefSize];
-        nvs.getBytes("generalPrefs", bufGeneralPrefs, prefSize);
-        memcpy(&generalPrefs, bufGeneralPrefs, prefSize);
-        Serial.print("Restored general preferences (");
-        Serial.print(prefSize);
-        Serial.println(" bytes).");
+        uint8_t storedVersion = nvs.getUChar(NVS_KEY_GENERAL_PREFS_VER, 0);
+        prefSize = nvs.getBytesLength(NVS_KEY_GENERAL_PREFS);
+
+        if (storedVersion == GENERAL_PREFS_SCHEMA_VERSION && prefSize == sizeof(generalPrefs))
+        {
+            byte bufGeneralPrefs[prefSize];
+            nvs.getBytes(NVS_KEY_GENERAL_PREFS, bufGeneralPrefs, prefSize);
+            memcpy(&generalPrefs, bufGeneralPrefs, prefSize);
+            Serial.print("Restored general preferences (");
+            Serial.print(prefSize);
+            Serial.print(" bytes, schema ");
+            Serial.print(storedVersion);
+            Serial.println(").");
+        }
+        else
+        {
+            Serial.print("General preferences schema mismatch (stored version ");
+            Serial.print(storedVersion);
+            Serial.print(", stored size ");
+            Serial.print(prefSize);
+            Serial.print(", expected version ");
+            Serial.print(GENERAL_PREFS_SCHEMA_VERSION);
+            Serial.print(", expected size ");
+            Serial.print(sizeof(generalPrefs));
+            Serial.println("). Keeping defaults.");
+            nvs.remove(NVS_KEY_GENERAL_PREFS);
+            nvs.putUChar(NVS_KEY_GENERAL_PREFS_VER, GENERAL_PREFS_SCHEMA_VERSION);
+        }
     }
 
-    if (nvs.getBool("switches"))
+    if (nvs.getBool(NVS_KEY_SWITCHES))
     {
-        prefSize = nvs.getBytesLength("switchesPrefs");
-        byte bufSwitchesPrefs[prefSize];
-        nvs.getBytes("switchesPrefs", bufSwitchesPrefs, prefSize);
-        memcpy(&switchesPrefs, bufSwitchesPrefs, prefSize);
-        Serial.print("Restored switches preferences (");
-        Serial.print(prefSize);
-        Serial.println(" bytes).");
+        uint8_t storedVersion = nvs.getUChar(NVS_KEY_SWITCHES_PREFS_VER, 0);
+        prefSize = nvs.getBytesLength(NVS_KEY_SWITCHES_PREFS);
+
+        if (storedVersion == SWITCHES_PREFS_SCHEMA_VERSION && prefSize == sizeof(switchesPrefs))
+        {
+            byte bufSwitchesPrefs[prefSize];
+            nvs.getBytes(NVS_KEY_SWITCHES_PREFS, bufSwitchesPrefs, prefSize);
+            memcpy(&switchesPrefs, bufSwitchesPrefs, prefSize);
+            Serial.print("Restored switches preferences (");
+            Serial.print(prefSize);
+            Serial.print(" bytes, schema ");
+            Serial.print(storedVersion);
+            Serial.println(").");
+        }
+        else
+        {
+            Serial.print("Switches preferences schema mismatch (stored version ");
+            Serial.print(storedVersion);
+            Serial.print(", stored size ");
+            Serial.print(prefSize);
+            Serial.print(", expected version ");
+            Serial.print(SWITCHES_PREFS_SCHEMA_VERSION);
+            Serial.print(", expected size ");
+            Serial.print(sizeof(switchesPrefs));
+            Serial.println("). Keeping defaults.");
+            nvs.remove(NVS_KEY_SWITCHES_PREFS);
+            nvs.putUChar(NVS_KEY_SWITCHES_PREFS_VER, SWITCHES_PREFS_SCHEMA_VERSION);
+        }
     }
 }

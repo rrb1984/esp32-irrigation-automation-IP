@@ -10,4 +10,5 @@ docs/
 deprecated/
 *.bin
 *.elf
+*.code-workspace
 !firmware_combined_for_wokwi.bin

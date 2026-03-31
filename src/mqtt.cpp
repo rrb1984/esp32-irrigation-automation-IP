@@ -27,12 +27,34 @@
 #include "relay.h"
 #include "utils.h"
 
-WiFiClient wifi;
-PubSubClient mqtt(wifi);
+AsyncMqttClient mqtt;
 static char clientname[64];
+static uint32_t lastConnectAttempt = 0;
+static bool mqttInited = false;
+static bool pendingPublish = false;
+static bool tlsWarningIssued = false;
+static bool callbacksRegistered = false;
+
+static bool mqtt_publish_status();
+
+static uint8_t mqtt_qos()
+{
+    return generalPrefs.mqttQoS > 2 ? 2 : generalPrefs.mqttQoS;
+}
+
+static void mqtt_state_topic(char *topic, size_t size)
+{
+    if (generalPrefs.mqttUbidotsStemCompat)
+    {
+        snprintf(topic, size - 1, "/v1.6/devices/%s", generalPrefs.mqttUbidotsDeviceLabel);
+        return;
+    }
+
+    snprintf(topic, size - 1, "%s", generalPrefs.mqttTopicState);
+}
 
 // called if mqtt messages arrive on topics we've subscribed
-static void mqtt_callback(char *topic, byte *payload, unsigned int length)
+static void mqtt_callback(char *topic, const char *payload, size_t length)
 {
     if (strstr(topic, generalPrefs.mqttTopicCmd) != NULL)
     {
@@ -40,25 +62,120 @@ static void mqtt_callback(char *topic, byte *payload, unsigned int length)
         {
             if (strstr(topic, pinnames[i]))
             {
-                setRelay(i, strncmp((char *)payload, "on", length) == 0);
+                bool turnOn = (length == 2 && payload[0] == 'o' && payload[1] == 'n');
+                setRelay(i, turnOn);
                 mqtt_send(MQTT_TIMEOUT_MS);
             }
         }
     }
 }
 
+static void mqtt_on_connect(bool sessionPresent)
+{
+    static char buf[96], logmsg[96];
+    uint8_t qos = mqtt_qos();
+    (void)sessionPresent;
+
+    Serial.print(millis());
+    Serial.println(F(": MQTT: connected."));
+
+    // subscribe to cmd topics for remote valve switching
+    for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
+    {
+        snprintf(buf, sizeof(buf) - 1, "%s/%s", generalPrefs.mqttTopicCmd, pinnames[i]);
+        if (!mqtt.subscribe(buf, qos))
+        {
+            Serial.print(millis());
+            Serial.printf(": MQTT: subscribe %s failed!\n", buf);
+            sprintf(logmsg, "mqtt subscribe %s failed", buf);
+            logMsg(logmsg);
+        }
+    }
+
+    if (pendingPublish)
+    {
+        pendingPublish = false;
+        mqtt_publish_status();
+    }
+}
+
+static void mqtt_on_disconnect(AsyncMqttClientDisconnectReason reason)
+{
+    static char logmsg[96];
+    Serial.print(millis());
+    Serial.printf(": MQTT: disconnected (%d).\n", (int)reason);
+    snprintf(logmsg, sizeof(logmsg), "mqtt disconnected %d", (int)reason);
+    logMsg(logmsg);
+}
+
+static void mqtt_on_subscribe(uint16_t packetId, uint8_t qos)
+{
+    Serial.print(millis());
+    Serial.printf(": MQTT: subscribed packet %u (qos %u).\n", packetId, qos);
+}
+
+static void mqtt_on_publish(uint16_t packetId)
+{
+    Serial.print(millis());
+    Serial.printf(": MQTT: publish acknowledged packet %u.\n", packetId);
+}
+
+static void mqtt_on_message(char *topic, char *payload,
+                            AsyncMqttClientMessageProperties properties,
+                            size_t len, size_t index, size_t total)
+{
+    Serial.print(millis());
+    Serial.printf(": MQTT: message on %s (len %u, qos %u, retain %u).\n",
+                  topic,
+                  (unsigned int)total,
+                  properties.qos,
+                  properties.retain ? 1 : 0);
+
+    // We only process complete single-frame command payloads.
+    if (index != 0 || len != total)
+        return;
+
+    mqtt_callback(topic, payload, len);
+}
+
 // set mqtt client name and callback function for subscribed topics
-static bool mqtt_init()
+bool mqtt_init()
 {
     String name;
-    static bool mqttInited = false;
 
     if (!mqttInited && generalPrefs.enableMQTT)
     {
-        mqtt.setServer(generalPrefs.mqttBroker, MQTT_PORT);
         name = String(MQTT_CLIENT_NAME).substring(0, 48) + "-" + systemID() + "-" + String(random(0xffff), HEX);
-        sprintf(clientname, name.c_str(), name.length());
-        mqtt.setCallback(mqtt_callback);
+        snprintf(clientname, sizeof(clientname), "%s", name.c_str());
+
+        mqtt.setServer(generalPrefs.mqttBroker, generalPrefs.mqttPort);
+        mqtt.setClientId(clientname);
+        mqtt.setKeepAlive(generalPrefs.mqttKeepalive);
+        mqtt.setCleanSession(generalPrefs.mqttCleanSession);
+#if ASYNC_TCP_SSL_ENABLED
+        mqtt.setSecure(generalPrefs.mqttUseTLS);
+#else
+        if (generalPrefs.mqttUseTLS && !tlsWarningIssued)
+        {
+            Serial.print(millis());
+            Serial.println(F(": MQTT: TLS requested but ASYNC_TCP_SSL_ENABLED is not available in this build."));
+            logMsg("mqtt tls unavailable in build");
+            tlsWarningIssued = true;
+        }
+#endif
+        if (!callbacksRegistered)
+        {
+            mqtt.onConnect(mqtt_on_connect);
+            mqtt.onDisconnect(mqtt_on_disconnect);
+            mqtt.onSubscribe(mqtt_on_subscribe);
+            mqtt.onPublish(mqtt_on_publish);
+            mqtt.onMessage(mqtt_on_message);
+            callbacksRegistered = true;
+        }
+
+        if (generalPrefs.mqttEnableAuth)
+            mqtt.setCredentials(generalPrefs.mqttUsername, generalPrefs.mqttPassword);
+
         mqttInited = true;
     }
     return mqttInited;
@@ -67,9 +184,7 @@ static bool mqtt_init()
 // connect to mqtt broker and subscribe to valve cmd topics
 bool mqtt_connect(uint16_t timeoutMillis)
 {
-    static char buf[96], logmsg[96];
-    static uint32_t lastFail = 0;
-    uint8_t retries = 0;
+    (void)timeoutMillis;
 
     if (!mqtt_init())
         return false;
@@ -84,55 +199,47 @@ bool mqtt_connect(uint16_t timeoutMillis)
         return false;
     }
 
-    // wait 30 sec before trying to connect after previous fail
-    if (lastFail > 0 && (millis() - lastFail) < (MQTT_CONNECT_RETRY_SECS * 1000))
+    // wait before reconnect attempt after disconnect/fail
+    if (lastConnectAttempt > 0 && (millis() - lastConnectAttempt) < (MQTT_CONNECT_RETRY_SECS * 1000))
         return false;
+
+    lastConnectAttempt = millis();
 
     Serial.print(millis());
-    Serial.printf(": MQTT: connecting to broker %s", generalPrefs.mqttBroker);
-
-    while (retries++ < int(timeoutMillis / 500))
-    {
-        Serial.print(".");
-        if (generalPrefs.mqttEnableAuth)
-            mqtt.connect(clientname, generalPrefs.mqttUsername, generalPrefs.mqttPassword);
-        else
-            mqtt.connect(clientname);
-        delay(500);
-    }
-
-    if (mqtt.connected())
-    {
-        Serial.println(F("success!"));
-        // subscribe to cmd topics for remote valve switching
-        for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
-        {
-            snprintf(buf, sizeof(buf) - 1, "%s/%s", generalPrefs.mqttTopicCmd, pinnames[i]);
-            if (!mqtt.subscribe(buf))
-            {
-                Serial.print(millis());
-                Serial.printf(": MQTT: subscribe %s failed!\n", buf);
-                sprintf(logmsg, "mqtt subscribe %s failed", buf);
-                logMsg(logmsg);
-            }
-        }
-        return true;
-    }
-    else
-    {
-        lastFail = millis();
-        Serial.println(F("failed!"));
-        sprintf(logmsg, "mqtt connect failed");
-        logMsg(logmsg);
-        return false;
-    }
+    Serial.printf(": MQTT: connecting to broker %s:%u\n", generalPrefs.mqttBroker, generalPrefs.mqttPort);
+    mqtt.connect();
+    return false;
 }
 
 // try to publish sensor reedings with given timeout
 // will implicitly call mqtt_init()
 bool mqtt_send(uint16_t timeoutMillis)
 {
+    (void)timeoutMillis;
+
+    if (mqtt_connect(MQTT_TIMEOUT_MS) && mqtt.connected())
+        return mqtt_publish_status();
+
+    pendingPublish = true;
+    return false;
+}
+
+void mqtt_reconfigure()
+{
+    if (mqtt.connected())
+        mqtt.disconnect();
+
+    // Force full re-init so new network settings are applied on next connect.
+    mqttInited = false;
+    pendingPublish = false;
+    lastConnectAttempt = 0;
+    tlsWarningIssued = false;
+}
+
+static bool mqtt_publish_status()
+{
     JsonDocument JSON;
+    uint8_t qos = mqtt_qos();
     static char status[64], topic[64], buf[192], label[16];
 
     if (!wifi_uplink(false))
@@ -166,22 +273,18 @@ bool mqtt_send(uint16_t timeoutMillis)
     }
 
     size_t s = serializeJson(JSON, buf);
-    if (mqtt_connect(timeoutMillis))
+    mqtt_state_topic(topic, sizeof(topic));
+
+    uint16_t packetId = mqtt.publish(topic, qos, false, buf, s);
+    if (packetId > 0)
     {
-        snprintf(topic, sizeof(topic) - 1, "%s", generalPrefs.mqttTopicState);
         Serial.print(millis());
-        if (mqtt.publish(topic, buf, s))
-        {
-            Serial.printf(": MQTT: published %d bytes to %s on %s\n", s,
-                          generalPrefs.mqttTopicState, generalPrefs.mqttBroker);
-            return true;
-        }
-        else
-        {
-            Serial.println(F(": MQTT: publish failed!"));
-            logMsg("mqtt publish failed");
-        }
+        Serial.printf(": MQTT: queued %u bytes to %s on %s\n", (unsigned int)s,
+                      topic, generalPrefs.mqttBroker);
+        return true;
     }
 
+    Serial.println(F(": MQTT: publish failed!"));
+    logMsg("mqtt publish failed");
     return false;
 }

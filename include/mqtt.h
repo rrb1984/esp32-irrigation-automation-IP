@@ -7,7 +7,7 @@
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-   
+
   http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
@@ -22,18 +22,23 @@
 #define _MQTT_H
 
 #include <Arduino.h>
-#include <PubSubClient.h>
+#include <AsyncMqttClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
 
 #define MQTT_TIMEOUT_MS 5000
 #define MQTT_CONNECT_RETRY_SECS 30
 #define MQTT_CLIENT_NAME "esp32-irrigation"
-#define MQTT_PORT 1883
 
-extern PubSubClient mqtt;
+extern AsyncMqttClient mqtt;
 
+// Initialize MQTT client and register callbacks. Returns true if successfully initialized.
+bool mqtt_init();
+// Triggers non-blocking connect if needed; returns true only when already connected.
 bool mqtt_connect(uint16_t timeoutMillis);
+// Returns true when payload was queued for publish (not end-to-end delivery confirmation).
 bool mqtt_send(uint16_t timeoutMillis);
+// Forces MQTT client to reload settings from preferences (broker/port/tls/auth/topics).
+void mqtt_reconfigure();
 
 #endif

@@ -98,6 +98,7 @@ void setup()
         startNTPSync(); // sync time with NTP server, needs to be called after wifi is connected
 
     webserver_start(); // start webserver, needs to be called after wifi is connected and time is synced for correct timestamps in logs and mqtt messages
+    mqtt_init();       // init MQTT client and register callbacks
 
 #ifdef DEBUG_MEMORY
     free_heap(); // print free heap at startup for debugging purposes
@@ -156,9 +157,8 @@ void loop()
             wifiRetry = 0;   // reset wifi retry timer if wifi is up
             wifiOffline = 0; // reset wifi offline timer if wifi is up
 
-            // check for remote commands recieved via MQTT and trigger actions accordingly
-            if (mqtt_connect(MQTT_TIMEOUT_MS))
-                mqtt.loop();
+            // keep MQTT connection alive (AsyncMqttClient handles incoming packets via callbacks)
+            mqtt_connect(MQTT_TIMEOUT_MS);
 
             // publish current sensor readings
             if (millis() - prevMqttPublish >= (generalPrefs.mqttPushInterval * 1000))

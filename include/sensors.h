@@ -26,7 +26,6 @@
 #include <HCSR04.h>
 #include <driver/adc.h>
 #include <DHTesp.h>
-#include <Ultrasonic.h>
 
 #define MOISTURE_MA_WINDOW_SIZE 5   // size of moving average window for moisture sensor readings, needs to be large enough to allow for stable readings but small enough to react to changes in soil moisture in a timely manner
 #define MOISTURE_MA_WINDOW_TIME 600 // time in seconds to wait before updating moving average of moisture sensor readings, needs to be long enough to allow for stable readings but short enough to react to changes in soil moisture in a timely manner

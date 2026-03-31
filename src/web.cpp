@@ -130,12 +130,16 @@ static void updateConfig()
     JSON["appassword"] = generalPrefs.wifiApPassword;
     JSON["mqtt"] = generalPrefs.enableMQTT ? 1 : 0;
     JSON["mqttbroker"] = generalPrefs.mqttBroker;
+    JSON["mqttport"] = generalPrefs.mqttPort;
     JSON["mqtttopiccmd"] = generalPrefs.mqttTopicCmd;
     JSON["mqtttopicstate"] = generalPrefs.mqttTopicState;
     JSON["mqttinterval"] = generalPrefs.mqttPushInterval;
+    JSON["mqttusetls"] = generalPrefs.mqttUseTLS ? 1 : 0;
     JSON["mqttauth"] = generalPrefs.mqttEnableAuth ? 1 : 0;
     JSON["mqttuser"] = generalPrefs.mqttUsername;
     JSON["mqttpassword"] = generalPrefs.mqttPassword;
+    JSON["ubidots"] = generalPrefs.mqttUbidotsStemCompat ? 1 : 0;
+    JSON["ubidots_label"] = generalPrefs.mqttUbidotsDeviceLabel;
 
     JSON["firmware"] = FIRMWARE_VERSION;
     JSON["build"] = String(__DATE__) + " " + String(__TIME__);
@@ -344,40 +348,103 @@ void webserver_start()
     webserver.on("/network", HTTP_POST, []()
                  {
         logMsg("webui save network prefs");
+        char oldStaSSID[33], oldStaPassword[33];
+        bool staCredsChanged = false;
+
+        strncpy(oldStaSSID, generalPrefs.wifiStaSSID, sizeof(oldStaSSID) - 1);
+        oldStaSSID[sizeof(oldStaSSID) - 1] = '\0';
+        strncpy(oldStaPassword, generalPrefs.wifiStaPassword, sizeof(oldStaPassword) - 1);
+        oldStaPassword[sizeof(oldStaPassword) - 1] = '\0';
 
         if (webserver.arg("appassword").length() >= 8 && webserver.arg("appassword").length() <= 32)
+        {
+            memset(generalPrefs.wifiApPassword, 0, sizeof(generalPrefs.wifiApPassword));
             strncpy(generalPrefs.wifiApPassword, webserver.arg("appassword").c_str(), 32);
-        if (webserver.arg("stassid").length() >= 8 && webserver.arg("stassid").length() <= 32)
+            generalPrefs.wifiApPassword[32] = '\0';
+        }
+        if (webserver.arg("stassid").length() >= 1 && webserver.arg("stassid").length() <= 32)
+        {
+            memset(generalPrefs.wifiStaSSID, 0, sizeof(generalPrefs.wifiStaSSID));
             strncpy(generalPrefs.wifiStaSSID, webserver.arg("stassid").c_str(), 32);
-        if (webserver.arg("stapassword").length() >= 8 && webserver.arg("stapassword").length() <= 32)
+            generalPrefs.wifiStaSSID[32] = '\0';
+        }
+        if (webserver.arg("stapassword").length() <= 32)
+        {
+            memset(generalPrefs.wifiStaPassword, 0, sizeof(generalPrefs.wifiStaPassword));
             strncpy(generalPrefs.wifiStaPassword, webserver.arg("stapassword").c_str(), 32);
+            generalPrefs.wifiStaPassword[32] = '\0';
+        }
+
+        staCredsChanged = (strncmp(oldStaSSID, generalPrefs.wifiStaSSID, 32) != 0) ||
+                          (strncmp(oldStaPassword, generalPrefs.wifiStaPassword, 32) != 0);
 
         if (webserver.arg("mqtt") == "on") {
             generalPrefs.enableMQTT = true;
             if (webserver.arg("mqttbroker").length() >= 4 && webserver.arg("mqttbroker").length() <= 64)
+            {
+                memset(generalPrefs.mqttBroker, 0, sizeof(generalPrefs.mqttBroker));
                 strncpy(generalPrefs.mqttBroker, webserver.arg("mqttbroker").c_str(), 64);
+            }
+            if (webserver.arg("mqttport").toInt() >= 1 && webserver.arg("mqttport").toInt() <= 65535)
+                generalPrefs.mqttPort = webserver.arg("mqttport").toInt();
             if (webserver.arg("mqtttopiccmd").length() >= 4 && webserver.arg("mqtttopiccmd").length() <= 64)
+            {
+                memset(generalPrefs.mqttTopicCmd, 0, sizeof(generalPrefs.mqttTopicCmd));
                 strncpy(generalPrefs.mqttTopicCmd, webserver.arg("mqtttopiccmd").c_str(), 64);
+            }
             if (webserver.arg("mqtttopicstate").length() >= 4 && webserver.arg("mqtttopicstate").length() <= 64)
+            {
+                memset(generalPrefs.mqttTopicState, 0, sizeof(generalPrefs.mqttTopicState));
                 strncpy(generalPrefs.mqttTopicState, webserver.arg("mqtttopicstate").c_str(), 64);
+            }
             if (webserver.arg("mqttinterval").toInt() >= 10 && webserver.arg("mqttinterval").toInt() <= 600)
                 generalPrefs.mqttPushInterval = webserver.arg("mqttinterval").toInt();
+            generalPrefs.mqttUseTLS = (webserver.arg("mqttusetls") == "on");
         } else {
             generalPrefs.enableMQTT = false;
         }
 
         if (webserver.arg("mqttauth") == "on") {
             generalPrefs.mqttEnableAuth = true;
-            if (webserver.arg("mqttuser").length() >= 4 && webserver.arg("mqttuser").length() <= 32)
-                strncpy(generalPrefs.mqttUsername, webserver.arg("mqttuser").c_str(), 32);
-            if (webserver.arg("mqttpassword").length() >= 4 && webserver.arg("mqttpassword").length() <= 32)
-                strncpy(generalPrefs.mqttPassword, webserver.arg("mqttpassword").c_str(), 32);
+            if (webserver.arg("mqttuser").length() >= 1 && webserver.arg("mqttuser").length() <= 64)
+            {
+                memset(generalPrefs.mqttUsername, 0, sizeof(generalPrefs.mqttUsername));
+                strncpy(generalPrefs.mqttUsername, webserver.arg("mqttuser").c_str(), 64);
+                generalPrefs.mqttUsername[64] = '\0';
+            }
+            if (webserver.arg("mqttpassword").length() <= 64)
+            {
+                memset(generalPrefs.mqttPassword, 0, sizeof(generalPrefs.mqttPassword));
+                strncpy(generalPrefs.mqttPassword, webserver.arg("mqttpassword").c_str(), 64);
+                generalPrefs.mqttPassword[64] = '\0';
+            }
         } else {
             generalPrefs.mqttEnableAuth = false;
         }
 
+        generalPrefs.mqttUbidotsStemCompat = (webserver.arg("ubidots") == "on");
+        if (webserver.arg("ubidots_label").length() >= 1 && webserver.arg("ubidots_label").length() <= 32)
+        {
+            memset(generalPrefs.mqttUbidotsDeviceLabel, 0, sizeof(generalPrefs.mqttUbidotsDeviceLabel));
+            strncpy(generalPrefs.mqttUbidotsDeviceLabel, webserver.arg("ubidots_label").c_str(), 32);
+            generalPrefs.mqttUbidotsDeviceLabel[32] = '\0';
+        }
+
         nvs.putBool("general", true);
+        nvs.putUChar("generalPrefsV", GENERAL_PREFS_SCHEMA_VERSION);
         nvs.putBytes("generalPrefs", &generalPrefs, sizeof(generalPrefs));  
+
+        if (staCredsChanged)
+        {
+            Serial.print(millis());
+            Serial.println(F(": WiFi: STA credentials changed, will reconnect in loop."));
+            // Note: wifi_reconnect_sta() is NOT called here to avoid race conditions.
+            // The loop() in main.cpp will detect the WiFi disconnection and reconnect.
+        }
+
+        // Apply MQTT changes immediately without requiring a full system restart.
+        mqtt_reconfigure();
+        mqtt_connect(MQTT_TIMEOUT_MS);
 
         webserver.send(200, "text/plain", "OK");
         Serial.print(millis());
@@ -432,6 +499,7 @@ void webserver_start()
 
         // store settings in NVS     
         nvs.putBool("switches", true);
+        nvs.putUChar("switchesPrefsV", SWITCHES_PREFS_SCHEMA_VERSION);
         nvs.putBytes("switchesPrefs", &switchesPrefs, sizeof(switchesPrefs));
 
         // reset moving average values
@@ -492,6 +560,7 @@ void webserver_start()
 
         // store settings in NVS     
         nvs.putBool("switches", true);
+        nvs.putUChar("switchesPrefsV", SWITCHES_PREFS_SCHEMA_VERSION);
         nvs.putBytes("switchesPrefs", &switchesPrefs, sizeof(switchesPrefs));       
 
         webserver.send(200, "text/plain", "OK");

@@ -7,7 +7,7 @@
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-   
+
   http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
@@ -22,27 +22,38 @@
 #define _PREFS_H
 
 #include <Arduino.h>
-#include <Preferences.h>  // use NVS instead of EEPROM (depreciated on ESP32)
+#include <Preferences.h> // use NVS instead of EEPROM (depreciated on ESP32)
 #include "config.h"
 
+#define GENERAL_PREFS_SCHEMA_VERSION 4
+#define SWITCHES_PREFS_SCHEMA_VERSION 1
 
-typedef struct  {
+typedef struct
+{
     uint16_t wifiAPT;
     char wifiApPassword[33];
     char wifiStaSSID[33];
     char wifiStaPassword[33];
     bool enableMQTT;
     char mqttBroker[65];
+    uint16_t mqttPort;
+    bool mqttUseTLS;
     char mqttTopicCmd[65];
     char mqttTopicState[65];
     uint16_t mqttPushInterval;
-    char mqttUsername[33];
-    char mqttPassword[33];
+    uint16_t mqttKeepalive;
+    uint8_t mqttQoS;
+    bool mqttCleanSession;
+    char mqttUsername[65];
+    char mqttPassword[65];
     bool mqttEnableAuth;
+    bool mqttUbidotsStemCompat;
+    char mqttUbidotsDeviceLabel[33];
     bool clearNVSFwUpdate; // no switch in web ui
 } generalPrefs_t;
 
-typedef struct {
+typedef struct
+{
     int8_t pinRelay[NUM_RELAY];
     char labelRelay[NUM_RELAY][25];
     int8_t pinMoisture[NUM_MOISTURE_SENSORS];
@@ -57,7 +68,7 @@ typedef struct {
     bool enableLogging;
     uint8_t minWaterLevel;
     bool ignoreWaterLevel;
-    uint16_t waterReservoirHeight;//change from 8 to 16 bit data to cover the distance of the container
+    uint16_t waterReservoirHeight; // change from 8 to 16 bit data to cover the distance of the container
     uint16_t moistureMin;
     uint16_t moistureMax;
     bool moistureRaw;
@@ -73,4 +84,3 @@ void initPrefs();
 void restorePrefs();
 
 #endif
-

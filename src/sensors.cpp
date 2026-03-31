@@ -23,6 +23,7 @@
 #include "config.h"
 #include "logging.h"
 #include <Arduino.h>
+#include <Ultrasonic.h>
 
 #ifdef HAS_HTU21D
 static HTU21D htu21(HTU21D_RES_RH12_TEMP14);
