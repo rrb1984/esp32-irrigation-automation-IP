@@ -194,7 +194,7 @@ void pumpAutoStop()
                 if (i == ((sizeof(pinmap) / sizeof(pinmap[0])) - 1))
                 {
                     readMoisture(true, true, false);
-                    mqtt_send(MQTT_TIMEOUT_MS);
+                    publishMqttStatus(MQTT_TIMEOUT_MS);
                 }
             }
         }

@@ -231,7 +231,7 @@ void webserver_start()
                          webserver.send(500, "text/plain", "ERR");
                      }
                      if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
-                         mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
+                         publishMqttStatus(MQTT_TIMEOUT_MS); // publish changed relay settings
                  });
 #else
     // set/check valves -1 value
@@ -255,7 +255,7 @@ void webserver_start()
                          webserver.send(500, "text/plain", "ERR");
                      }
                      if (webserver.arg("on").toInt() > 0 || webserver.arg("off").toInt() > 0)
-                         mqtt_send(MQTT_TIMEOUT_MS); // publish changed relay settings
+                         publishMqttStatus(MQTT_TIMEOUT_MS); // publish changed relay settings
                  });
 #endif
     // return log files as JSON for SPA
@@ -468,8 +468,8 @@ void webserver_start()
         }
 
         // Apply MQTT changes immediately without requiring a full system restart.
-        mqtt_reconfigure();
-        mqtt_connect(MQTT_TIMEOUT_MS);
+        reconfigureMqttClient();
+        connectToMqtt(MQTT_TIMEOUT_MS);
 
         webserver.send(200, "text/plain", "OK");
         Serial.print(millis());
