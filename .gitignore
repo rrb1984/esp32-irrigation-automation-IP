@@ -10,6 +10,7 @@ docs/
 deprecated/
 assets/
 html/
+scripts/
 *.bin
 *.elf
 *.code-workspace
