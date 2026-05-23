@@ -33,6 +33,7 @@ struct valvejob_t
 
 void schedule_job(valvejob_t *job, time_t time, jobfn_t func, uint8_t relay, bool state);
 bool jobs_scheduled();
+bool jobs_scheduled_relay(uint8_t relay);
 void scheduler();
 
 #endif

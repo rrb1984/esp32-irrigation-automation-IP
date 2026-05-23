@@ -88,7 +88,7 @@
 // optional: dedicate a separate device for command variables in Ubidots
 #define MQTT_UBIDOTS_CMD_DEVICE_LABEL "esp32_irrigation_cmd"
 
-// relay pin for water pump
+// relay pin for water pump DEPRECATTED, it is not used anymore.
 #define PUMP_PIN 4
 
 // if water level in reservoir falls below this
@@ -120,11 +120,11 @@
 #define MOISTURE_PINS "33,34,32,35"
 #define MOIST1_PIN 33
 #define MOIST1_LABEL "moisture33"
-#define MOIST2_PIN 34
+#define MOIST2_PIN -1
 #define MOIST2_LABEL "moisture34"
-#define MOIST3_PIN 32
+#define MOIST3_PIN -1
 #define MOIST3_LABEL "moisture32"
-#define MOIST4_PIN 35
+#define MOIST4_PIN -1
 #define MOIST4_LABEL "moisture35"
 
 // ADC readings from capacitave moisture sensor v1.2 which mark the
@@ -150,7 +150,7 @@
 
 // pins for HC-SR04 ultrasonic sensor (water level)
 #define US_TRIGGER_PIN 14
-#define US_ECHO_PIN 12
+#define US_ECHO_PIN 27
 
 // log sensor reading to flash
 #define ENABLE_LOGGING
@@ -158,15 +158,15 @@
 // if plants haven't been watered for AUTO_IRRIGATION_PAUSE_HOURS trigger
 // irrigation (all valves) for AUTO_IRRIGATION_SECS at AUTO_IRRIGRATION_TIME
 // Note: AUTO_IRRIGATION_DURATION_SECS must be less than PUMP_AUTOSTOP_SECS
-// #define ENABLE_AUTO_IRRIGRATION_SCHEDULER
+#define ENABLE_AUTO_IRRIGRATION_SCHEDULER
 #define AUTO_IRRIGRATION_TIME "08:00" // HH:MM, 24h
-#define AUTO_IRRIGATION_SECS 20
-#define AUTO_IRRIGATION_PAUSE_HOURS 12
+#define AUTO_IRRIGATION_SECS 10
+#define AUTO_IRRIGATION_PAUSE_HOURS 0
 
 // pump will stop if active for more then given
 // number of settings; meant as a upper limit
 // to avoid accidental overwatering
-#define PUMP_AUTOSTOP_SECS 50
+#define PUMP_AUTOSTOP_SECS 40
 
 // time server
 #define NTP_ADDRESS "de.pool.ntp.org"

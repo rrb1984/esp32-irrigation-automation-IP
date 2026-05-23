@@ -20,6 +20,7 @@
 extern uint16_t pinmap[NUM_RELAY][3];
 extern char pinnames[NUM_RELAY][7];
 extern uint32_t pintime[];
+extern uint32_t pintimeOn[];
 
 void initRelays();
 void setRelay(uint8_t num, bool on);

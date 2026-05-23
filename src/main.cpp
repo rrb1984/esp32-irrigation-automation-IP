@@ -194,26 +194,28 @@ void loop()
          * This is a simple implementation of a smart irrigation system that triggers irrigation based on soil moisture levels and a defined schedule. The system checks if auto irrigation is enabled and if there are no jobs currently scheduled. If the current time matches the defined auto irrigation time, it schedules irrigation jobs for each valve based on the configured runtime and pause hours to avoid overwatering. The system also checks the soil moisture levels for each valve and only schedules irrigation if the moisture level is below the defined threshold for that valve.
          */
 
-        if (!switchesPrefs.enableAutoIrrigation && !strcmp(switchesPrefs.autoIrrigationTime, getTimeString(false)) && currentDay != lastDailyTriggerDay) // if auto irrigation is disabled, it's time for daily trigger and it hasn't been triggered yet today, check soil moisture levels and schedule irrigation jobs for valves that need watering based on configured runtime and pause hours to avoid overwatering
-        {
-            for (uint8_t i = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) // loop through each valve and set next check time for soil moisture levels to current time to trigger immediate check and potential irrigation for valves that need watering based on configured runtime and pause hours to avoid overwatering, also ensures that daily trigger is only triggered once per day
-            {
-                nextCheckTime[i] = getLocalTime();
-            }
-            lastDailyTriggerDay = currentDay; // Update the last daily trigger day to the current day to ensure that the daily trigger is only triggered once per day
-        }
-
-        if (!switchesPrefs.enableAutoIrrigation && !jobs_scheduled()) // if auto irrigation is disabled, no jobs are currently scheduled and it's time for auto irrigation, check soil moisture levels and schedule irrigation jobs for valves that need watering based on configured runtime and pause hours to avoid overwatering
+        if (!strcmp(switchesPrefs.autoIrrigationTime, getTimeString(false)) && switchesPrefs.enableAutoIrrigation) // if it is time for the daily trigger, check soil moisture levels and schedule irrigation jobs for relays independently
         {
             scheduler_start = millis();
 
-            for (uint8_t i = 0, j = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++) // loop through each valve
+            for (uint8_t i = 0, j = 0; i < (sizeof(pinmap) / sizeof(pinmap[0])); i++)
             {
-                if (nextCheckTime[i] > 0 && getLocalTime() >= nextCheckTime[i]) // if it's time to check soil moisture levels for valve 'i'
+
+                if (switchesPrefs.pinMoisture[i] >= 0 && switchesPrefs.pinRelay[i] >= 0 && !jobs_scheduled_relay(i) &&
+                    (getLocalTime() - pintime[i]) > (switchesPrefs.autoIrrigationPauseHours * 3600))
                 {
-                    if (sensors.moisture[i] < switchesPrefs.MoistureValueThreshold[i]) // if soil moisture level for valve 'i' is below defined threshold, schedule irrigation jobs for valve 'i' based on configured runtime and pause hours to avoid overwatering
+
+                    uint16_t thresholdToCompare = switchesPrefs.MoistureValueThreshold[i];
+                    if (!switchesPrefs.moistureRaw)
                     {
-                        if (switchesPrefs.autoIrrigationSecs[i] > 0) // if runtime is configured for valve 'i'
+                        thresholdToCompare = map(switchesPrefs.MoistureValueThreshold[i],
+                                                 switchesPrefs.moistureMin,
+                                                 switchesPrefs.moistureMax, 0, 100);
+                    }
+
+                    if (sensors.moisture[i] >= 0 && sensors.moisture[i] < thresholdToCompare)
+                    {
+                        if (switchesPrefs.autoIrrigationSecs[i] > 0)
                         {
                             schedule_job(&valvejobs[j], (scheduler_start + ((i + 1) * 1000)), setRelay, i, true);
                             schedule_job(&valvejobs[j + 1], (scheduler_start + ((i + 1) + switchesPrefs.autoIrrigationSecs[i]) * 1000), setRelay, i, false);
@@ -221,7 +223,6 @@ void loop()
                             j = j + 2;
                         }
                     }
-                    nextCheckTime[i] = getLocalTime() + (switchesPrefs.autoIrrigationPauseHours * 3600); // update next check time for valve 'i' to current time plus configured pause hours to avoid overwatering
                 }
             }
         }

@@ -39,7 +39,7 @@
       "id": "text6",
       "top": -316.8,
       "left": 566.4,
-      "attrs": { "text": "Echo\n12" }
+      "attrs": { "text": "Echo\n27" }
     },
     { "type": "wokwi-dht22", "id": "dht1", "top": -556.5, "left": 340.2, "attrs": {} },
     {
@@ -234,7 +234,7 @@
     [ "ultrasonic1:VCC", "bb1:tp.50", "red", [ "v0" ] ],
     [ "ultrasonic1:GND", "bb1:tn.50", "black", [ "v0" ] ],
     [ "ultrasonic1:TRIG", "esp:14", "blue", [ "v-9.6", "h-1094.8", "v374.4" ] ],
-    [ "ultrasonic1:ECHO", "esp:12", "gold", [ "v-19.2", "h-1114.4", "v393.6" ] ],
+    [ "ultrasonic1:ECHO", "esp:27", "gold", [ "v-19.2", "h-1114.4", "v393.6" ] ],
     [ "pot4:SIG", "esp:35", "green", [ "v57.6", "h-432.4", "v96" ] ],
     [ "pot4:VCC", "bb1:tp.15", "red", [ "v0" ] ],
     [ "pot4:GND", "bb1:tn.14", "black", [ "v0" ] ],

@@ -21,6 +21,8 @@ uint16_t pinstate = 0;
 // store time pin was last triggered
 /// used for auto-stop and blocking of relays
 uint32_t pintime[] = {0, 0, 0, 0};
+// store time pin was turned on for auto-stop timing
+uint32_t pintimeOn[] = {0, 0, 0, 0};
 
 // define pins configure as relay control port as
 // output set them high since relay are active low
@@ -70,7 +72,7 @@ void setRelay(uint8_t num, bool on)
             if ((pinstate & pinmap[num][1]) == 0) // check if relay is already on, if not turn on relay, update pinstate and log action
             {
                 digitalWrite(pinmap[num][0], LOW); // active -> low ( inverted logic)
-                pintime[num] = getLocalTime();     // store time relay was turned on for auto-stop and blocking of relays
+                pintimeOn[num] = getLocalTime();   // remember relay start time for auto-stop
                 pinstate |= pinmap[num][1];        // update pinstate to indicate relay is on
                 pinstate &= ~pinmap[num][2];       // update pinstate to indicate relay is not blocked
                 Serial.print(millis());
@@ -91,7 +93,7 @@ void setRelay(uint8_t num, bool on)
         if ((pinstate & pinmap[num][1]) != 0) // check if relay is on, if it is turn off relay, update pinstate and log action
         {
             digitalWrite(pinmap[num][0], HIGH); // inactive -> high ( inverted logic)
-            pintime[num] = getLocalTime();
+            pintime[num] = getLocalTime();      // store time relay was turned off for auto-stop and blocking of relays
             pinstate &= ~pinmap[num][1];
             pinstate |= pinmap[num][2];
             Serial.print(millis());
@@ -175,7 +177,7 @@ void pumpAutoStop()
     {
         if ((pinstate & pinmap[i][1]) != 0)
         {
-            if ((getLocalTime() - pintime[i]) > switchesPrefs.pumpAutoStopSecs)
+            if ((getLocalTime() - pintimeOn[i]) > switchesPrefs.pumpAutoStopSecs)
             {
                 setRelay(i, false);
                 Serial.print(millis());

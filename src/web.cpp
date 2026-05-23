@@ -231,11 +231,11 @@ void webserver_start()
                      char reply[256];
                      if (webserver.arg("on").toInt() >= 1 && webserver.arg("on").toInt() <= 4)
                      {
-                         setRelay(webserver.arg("on").toInt(), true);
+                         setRelay(webserver.arg("on").toInt() - 1, true);
                      }
                      else if (webserver.arg("off").toInt() >= 1 && webserver.arg("off").toInt() <= 4)
                      {
-                         setRelay(webserver.arg("off").toInt(), false);
+                         setRelay(webserver.arg("off").toInt() - 1, false);
                      }
                      if (relayStatus(reply, sizeof(reply)) > 0)
                      {

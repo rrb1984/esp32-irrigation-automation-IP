@@ -78,3 +78,16 @@ bool jobs_scheduled()
 {
     return scheduledjobs != NULL;
 }
+
+bool jobs_scheduled_relay(uint8_t relay)
+{
+    for (valvejob_t *job = scheduledjobs; job != NULL; job = job->next)
+    {
+        if (job->relay == relay)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
