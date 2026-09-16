@@ -14,7 +14,6 @@
 #include "config.h"
 #include "logging.h"
 #include <Arduino.h>
-#include <Ultrasonic.h>
 
 #ifdef HAS_HTU21D
 static HTU21D htu21(HTU21D_RES_RH12_TEMP14);
@@ -27,7 +26,7 @@ static bool dhtReady = false;
 #endif
 
 #if defined(US_TRIGGER_PIN) && defined(US_ECHO_PIN)
-static Ultrasonic hcrs04(US_TRIGGER_PIN, US_ECHO_PIN);
+static UltraSonicDistanceSensor hcrs04(US_TRIGGER_PIN, US_ECHO_PIN);
 #endif
 static uint16_t moistureMA[NUM_MOISTURE_SENSORS][MOISTURE_MA_WINDOW_SIZE];
 sensorReadings_t sensors;
@@ -53,23 +52,23 @@ void initSensors()
 
 #ifdef HAS_DHT122
     Serial.print(millis()); // print timestamp for logging
-    Serial.print(F(": Starting DHT22  in GPIO "));
+    Serial.print(F(": Starting DHT sensor in GPIO "));
     Serial.println(DHT22_PIN);
-    delay(5000);                               // wait for sensor to stabilize, especially important if sensor is powered on at startup, also gives time to user to see the startup message in serial monitor before potential error messages from sensor reading are printed
-    dhtSensor.setup(DHT22_PIN, DHTesp::DHT22); // setup DHT22 sensor, needs to be called before any other function that relies on DHT22 sensor data
+    delay(5000);                                 // wait for sensor to stabilize, especially important if sensor is powered on at startup, also gives time to user to see the startup message in serial monitor before potential error messages from sensor reading are printed
+    dhtSensor.setup(DHT22_PIN, DHT_SENSOR_TYPE); // setup DHT sensor (DHT11 or DHT22), needs to be called before any other function that relies on DHT sensor data
 
     TempAndHumidity data = dhtSensor.getTempAndHumidity(); // read the temperature and humidity to verify that the sensor is working correctly and to log the initial values at startup, also initializes the sensor for future readings, needs to be called before any other function that relies on DHT22 sensor data
     delay(2000);                                           // wait a bit before reading again to avoid potential issues with first reading after sensor setup, also gives time to user to see the initial values in serial monitor before potential error messages from sensor reading are printed
     if (isnan(data.temperature) || isnan(data.humidity))
     { // if the reading is not valid, log an error message with the type of error
-        Serial.print(F("Error reading DHT22 sensor: "));
+        Serial.print(F("Error reading DHT sensor: "));
         Serial.println("Initial outdoor temperature: " + String(data.temperature, 2) + "°C");
         Serial.println("Initial outdoor humidity: " + String(data.humidity, 1) + "%");
         Serial.println(dhtSensor.getStatusString());
     }
     else
     {
-        Serial.println(F("OK! Sensor DHT22 ready."));
+        Serial.println(F("OK! DHT sensor ready."));
         Serial.println("Initial outdoor temperature: " + String(data.temperature, 2) + "°C");
         Serial.println("Initial outdoor humidity: " + String(data.humidity, 1) + "%");
         dhtReady = true;
@@ -157,13 +156,13 @@ void readWaterLevel(bool verbose, bool log)
     static int16_t prevDistance = 0;
     static uint8_t errors = 0;
     uint16_t MoistureValueThresholdTemp = 0;
-    int16_t distance = int(hcrs04.read());
+    int16_t distance = int(hcrs04.measureDistanceCm());
     char logmsg[32];
     // first run at system startup
     if (!prevDistance)
     {
         delay(100);
-        distance = int(hcrs04.read());
+        distance = int(hcrs04.measureDistanceCm());
         prevDistance = distance;
     }
 
